@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0c0c14">
+<title>Timbrature</title>
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="js/config.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">⏱️ <span>Timbrature</span></div>
+    <div class="clock" id="liveClock">--:--:--</div>
+  </header>
+
+  <main id="views">
+
+    <!-- HOME -->
+    <section id="view-home" class="view active">
+      <div class="card today-card">
+        <div class="today-ring">
+          <canvas id="ringChart"></canvas>
+          <div class="ring-label">
+            <span id="ringValue">--</span>
+            <small>ore oggi</small>
+          </div>
+        </div>
+        <div class="today-info">
+          <div class="date" id="todayDate">—</div>
+          <div class="today-times">
+            <div class="time-pill empty" id="entrataPill">
+              <div class="tp-label">Entrata</div>
+              <div class="tp-value" id="entrataValue">--:--</div>
+            </div>
+            <div class="time-pill empty" id="uscitaPill">
+              <div class="tp-label">Uscita</div>
+              <div class="tp-value" id="uscitaValue">--:--</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quick-actions">
+        <button class="btn btn-primary" id="btnEntrata">▶ Timbra entrata</button>
+        <button class="btn btn-secondary" id="btnUscita">⏹ Timbra uscita</button>
+      </div>
+
+      <div id="anomalyBanner"></div>
+
+      <div class="card-row">
+        <div class="card balance-card">
+          <div class="card-title">Saldo mese</div>
+          <div class="value zero" id="monthBalance">—</div>
+          <div class="sub" id="monthBalanceSub"></div>
+        </div>
+        <div class="card balance-card">
+          <div class="card-title">Saldo anno</div>
+          <div class="value zero" id="yearBalance">—</div>
+          <div class="sub" id="yearBalanceSub"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ultimi 7 giorni · scarto flessibilità</div>
+        <div class="chart-wrap h140"><canvas id="last7Chart"></canvas></div>
+      </div>
+    </section>
+
+    <!-- CALENDAR -->
+    <section id="view-calendar" class="view">
+      <div class="card">
+        <div class="month-nav">
+          <button id="prevBtn">‹</button>
+          <span class="label" id="monthLabel">—</span>
+          <button id="nextBtn">›</button>
+        </div>
+      </div>
+
+      <div class="stats-strip" id="statsStrip"></div>
+
+      <div class="days" id="daysContainer">
+        <div class="loading"><div class="spinner"></div><span>Caricamento...</span></div>
+      </div>
+
+      <div class="card-row">
+        <button class="btn btn-secondary" id="resetBtn">↻ Ricarica</button>
+        <button class="btn btn-primary" id="saveBtn">💾 Salva modifiche</button>
+      </div>
+    </section>
+
+    <!-- STATS -->
+    <section id="view-stats" class="view">
+      <div class="card">
+        <div class="card-title">Scarto flessibilità per mese</div>
+        <div class="chart-wrap h180"><canvas id="monthlyChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Andamento cumulato nell'anno</div>
+        <div class="chart-wrap h180"><canvas id="cumulativeChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Composizione giorni</div>
+        <div class="chart-wrap h200"><canvas id="compositionChart"></canvas></div>
+        <div class="legend-row" id="compositionLegend"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Riepilogo</div>
+        <div class="summary-grid" id="summaryGrid"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="home"><span class="ic">🏠</span><span>Home</span></button>
+    <button class="tab" data-view="calendar"><span class="ic">📅</span><span>Calendario</span></button>
+    <button class="tab" data-view="stats"><span class="ic">📊</span><span>Statistiche</span></button>
+  </nav>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

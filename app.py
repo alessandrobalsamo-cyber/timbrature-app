@@ -3,10 +3,12 @@ import json
 from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 SHEET_ID = "1usNDXSwAKnKgEmSlfqfE9HPVsaNZuZ-A_Xk6vM7e9zg"
 

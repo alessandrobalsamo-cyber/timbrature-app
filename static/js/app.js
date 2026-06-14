@@ -17,12 +17,17 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// In the Android app (Capacitor) the UI is bundled locally, so API calls need
+// an absolute URL to the deployed backend. On the web version API_BASE is
+// empty and requests stay relative to the current origin.
+const API_BASE = window.API_BASE_URL || "";
+
 async function apiGet(path) {
-  const r = await fetch(path);
+  const r = await fetch(API_BASE + path);
   return r.json();
 }
 async function apiPost(path, body) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(API_BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return r.json();
 }
 

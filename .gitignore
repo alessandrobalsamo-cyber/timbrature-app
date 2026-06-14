@@ -4,3 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# Capacitor / Android: generato dalla CI (npx cap add android)
+node_modules/
+android/
