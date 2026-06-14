@@ -211,7 +211,7 @@ async function apiPost(path,body){const r=await fetch(API+path,{method:"POST",he
 async function init(){
   const now=new Date();
   state.today={day:now.getDate(),month:now.getMonth(),year:now.getFullYear()};
-  state.currentMonth=now.getMonth();state.currentYear=now.getYear();
+  state.currentMonth=now.getMonth();state.currentYear=now.getFullYear();
   const sheets=await apiGet("/api/sheets");
   if(sheets.error){showToast("Errore: "+sheets.error,true);return}
   state.sheets=sheets;
