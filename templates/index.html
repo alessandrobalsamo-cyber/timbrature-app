@@ -2,379 +2,134 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>⏱ Timbrature</title>
-<style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  :root{
-    --bg:#0f0f13;--surface:#1a1a24;--surface2:#24243a;--surface3:#2e2e4a;
-    --text:#e8e8f0;--text2:#9898b8;--accent:#7c5cfc;--accent2:#5a3fd6;
-    --green:#34d399;--red:#f87171;--orange:#fb923c;
-    --border:#2a2a40;--radius:14px;--radius-sm:10px;--shadow:0 4px 24px rgba(0,0,0,0.4);
-    --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif
-  }
-  html{height:100%}
-  body{
-    font-family:var(--font);background:var(--bg);color:var(--text);min-height:100%;
-    padding:0 0 120px 0;-webkit-tap-highlight-color:transparent;overscroll-behavior:none
-  }
-  ::-webkit-scrollbar{width:4px}
-  ::-webkit-scrollbar-track{background:var(--surface)}
-  ::-webkit-scrollbar-thumb{background:var(--accent);border-radius:4px}
-  .header{
-    position:sticky;top:0;z-index:100;background:var(--bg);padding:16px 16px 8px;
-    display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)
-  }
-  .header h1{
-    font-size:20px;font-weight:700;cursor:pointer;user-select:none;
-    background:linear-gradient(135deg,var(--accent),#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent
-  }
-  .month-nav{display:flex;align-items:center;gap:12px}
-  .month-nav button{
-    background:var(--surface2);border:none;color:var(--text);width:36px;height:36px;
-    border-radius:50%;font-size:18px;cursor:pointer;transition:all 0.2s;
-    display:flex;align-items:center;justify-content:center
-  }
-  .month-nav button:active{transform:scale(0.9);background:var(--accent)}
-  .month-nav span{font-size:15px;font-weight:600;min-width:130px;text-align:center}
-  .stats{display:flex;gap:10px;padding:12px 16px;overflow-x:auto;white-space:nowrap}
-  .stats::-webkit-scrollbar{display:none}
-  .stat-card{
-    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
-    padding:10px 14px;min-width:110px;flex-shrink:0
-  }
-  .stat-card .label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px}
-  .stat-card .value{font-size:17px;font-weight:700;margin-top:2px}
-  .stat-card .value.green{color:var(--green)}
-  .stat-card .value.orange{color:var(--orange)}
-  .stat-card .value.accent{color:var(--accent)}
-  .totals-bar{
-    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
-    margin:10px 16px;padding:12px 16px;cursor:pointer;user-select:none;transition:all 0.15s
-  }
-  .totals-bar:active{transform:scale(0.98)}
-  .totals-bar .t-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px}
-  .totals-bar .t-value{font-size:20px;font-weight:800;margin-top:2px}
-  .totals-bar .t-value.positive{color:var(--green)}
-  .totals-bar .t-value.negative{color:var(--red)}
-  .totals-bar .t-value.zero{color:var(--text2)}
-  .totals-bar .t-sub{font-size:11px;color:var(--text2);margin-top:2px}
-  .legend{display:flex;gap:14px;padding:0 16px 10px;font-size:11px;color:var(--text2);flex-wrap:wrap}
-  .legend-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
-  .legend-dot.full{background:var(--green)}
-  .legend-dot.partial{background:var(--orange)}
-  .legend-dot.today{background:var(--accent)}
-  .legend-dot.empty{background:var(--surface3)}
-  .days{display:flex;flex-direction:column;gap:5px;padding:0 16px}
-  .day-row{
-    display:grid;
-    grid-template-columns:42px 1.2fr 1.2fr 1fr 38px;
-    gap:6px;align-items:center;
-    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
-    padding:8px 10px;transition:all 0.15s
-  }
-  .day-row:active{transform:scale(0.98)}
-  .day-row.today{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
-  .day-row.weekend{opacity:0.55}
-  .day-row.saved{animation:flashGreen 0.5s}
-  @keyframes flashGreen{0%,100%{border-color:var(--border)}50%{border-color:var(--green)}}
-  .day-row .day-info{text-align:center}
-  .day-row .day-num{font-size:16px;font-weight:700;color:var(--text2)}
-  .day-row.today .day-num{color:var(--accent);position:relative}
-  .day-row.today .day-num::after{content:'•';position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);color:var(--accent);font-size:12px}
-  .day-row .day-name{font-size:8px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-top:-1px}
-  .day-row .inp-group{display:flex;flex-direction:column;gap:1px}
-  .day-row .inp-group label{font-size:8px;color:var(--text2);text-transform:uppercase;letter-spacing:0.3px}
-  .day-row .inp-group input{
-    background:var(--surface2);border:1px solid transparent;border-radius:7px;
-    padding:6px 8px;font-size:13px;font-weight:600;color:var(--text);
-    font-family:var(--font);width:100%;outline:none;transition:all 0.2s;min-width:0
-  }
-  .day-row .inp-group input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(124,92,252,0.2);background:var(--surface3)}
-  .day-row .inp-group input::placeholder{color:var(--text2);opacity:0.3}
-  .day-row .inp-group .prev-time{font-size:9px;color:var(--text2);opacity:0.6;margin-top:1px;padding-left:2px}
-  .day-row .meta-col{display:flex;flex-direction:column;align-items:center;gap:2px}
-  .day-row .meta-col .ritardo{font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;white-space:nowrap}
-  .day-row .meta-col .ritardo.ok{color:var(--green);background:rgba(52,211,153,0.12)}
-  .day-row .meta-col .ritardo.warn{color:var(--orange);background:rgba(251,146,92,0.12)}
-  .day-row .meta-col .ritardo.bad{color:var(--red);background:rgba(248,113,113,0.12)}
-  .day-row .meta-col .fless{font-size:9px;color:var(--text2)}
-  .day-row .meta-col .commessa{font-size:8px;color:var(--accent);opacity:0.7;max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .day-row .status{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all 0.3s;flex-shrink:0}
-  .day-row .status.empty{background:var(--surface2);color:var(--text2)}
-  .day-row .status.partial{background:rgba(251,146,92,0.15);color:var(--orange)}
-  .day-row .status.full{background:rgba(52,211,153,0.15);color:var(--green)}
-  .action-bar{
-    position:fixed;bottom:0;left:0;right:0;
-    background:var(--surface);border-top:1px solid var(--border);
-    padding:10px 16px;padding-bottom:max(10px,env(safe-area-inset-bottom));
-    display:flex;gap:8px;z-index:100;align-items:center;backdrop-filter:blur(20px)
-  }
-  .action-bar button{
-    flex:1;border:none;border-radius:var(--radius-sm);padding:11px 12px;
-    font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;font-family:var(--font)
-  }
-  .action-bar button:active{transform:scale(0.97)}
-  .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
-  .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border)!important}
-  .save-status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);min-width:80px;justify-content:center}
-  .save-status .dot{width:8px;height:8px;border-radius:50%;background:var(--orange);transition:all 0.3s}
-  .save-status .dot.saved{background:var(--green)}
-  .save-status .dot.error{background:var(--red)}
-  .save-status .dot.saving{animation:pulse 0.8s infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-  .loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;color:var(--text2)}
-  .loading .spinner{width:30px;height:30px;border:3px solid var(--surface2);border-top:3px solid var(--accent);border-radius:50%;animation:spin 0.8s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  .easter-egg{
-    position:fixed;bottom:60px;right:16px;z-index:99;
-    opacity:0;pointer-events:none;transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);
-    transform:scale(0.5) translateY(20px);font-size:13px;
-    background:var(--surface);border:1px solid var(--accent);border-radius:var(--radius-sm);
-    padding:12px 16px;box-shadow:var(--shadow);max-width:220px;text-align:center
-  }
-  .easter-egg.show{opacity:1;transform:scale(1) translateY(0);pointer-events:auto}
-  .easter-egg .ee-avatar{font-size:32px;display:block;margin-bottom:4px}
-  .easter-egg .ee-text{color:var(--text);font-weight:500;line-height:1.4}
-  .easter-egg .ee-sub{font-size:10px;color:var(--text2);margin-top:4px}
-  .toast{
-    position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:200;
-    background:var(--surface);border:1px solid var(--green);color:var(--green);
-    padding:8px 18px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;
-    opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap
-  }
-  .toast.show{opacity:1}
-  .toast.error{border-color:var(--red);color:var(--red)}
-  @media(max-width:400px){
-    .day-row{grid-template-columns:36px 1fr 1fr 1fr 30px;padding:6px 8px;gap:4px}
-    .day-row .inp-group input{padding:5px 6px;font-size:12px}
-    .day-row .status{width:28px;height:28px;font-size:12px}
-    .day-row .meta-col .ritardo{font-size:9px;padding:1px 4px}
-    .stat-card{min-width:90px;padding:8px 10px}
-    .stat-card .value{font-size:15px}
-  }
-  @media(min-width:500px){
-    .days,.totals-bar{max-width:520px;margin-left:auto;margin-right:auto}
-    .header{padding:16px 24px 8px;justify-content:space-around}
-  }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0c0c14">
+<title>Timbrature</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
+<div id="app">
 
-<div class="header">
-  <h1 id="titleH1">⏱ Timbrature</h1>
-  <div class="month-nav">
-    <button id="prevBtn">‹</button>
-    <span id="monthLabel">—</span>
-    <button id="nextBtn">›</button>
-  </div>
-</div>
-<div class="stats" id="statsBar"></div>
-<div class="totals-bar" id="totalsBar">
-  <div class="t-label">Flessibilità mese</div>
-  <div class="t-value zero" id="totValue">—</div>
-  <div class="t-sub" id="totSub"></div>
-</div>
-<div class="legend">
-  <span><span class="legend-dot full"></span>Ok</span>
-  <span><span class="legend-dot partial"></span>Parz</span>
-  <span><span class="legend-dot empty"></span>Vuoto</span>
-</div>
-<div class="days" id="daysContainer">
-  <div class="loading"><div class="spinner"></div><span>Caricamento...</span></div>
-</div>
-<div class="easter-egg" id="easterEgg">
-  <span class="ee-avatar">🐱</span>
-  <div class="ee-text">Nya~ bel lavoro!</div>
-  <div class="ee-sub">*scodinzola felice* 💕</div>
-</div>
-<div class="toast" id="toast"></div>
-<div class="action-bar">
-  <button class="btn-secondary" id="resetBtn">↻ Ricarica</button>
-  <button class="btn-primary" id="saveBtn">💾 Salva tutto</button>
-  <div class="save-status">
-    <span class="dot" id="saveDot"></span>
-    <span id="saveLabel">Pronto</span>
-  </div>
-</div>
+  <header class="topbar">
+    <div class="brand">⏱️ <span>Timbrature</span></div>
+    <div class="clock" id="liveClock">--:--:--</div>
+  </header>
 
-<script>
-const state={sheetName:"",sheets:[],allRows:[],totals:null,edits:{},currentMonth:new Date().getMonth(),currentYear:new Date().getFullYear(),today:{day:0,month:0,year:0},easterEggCount:0};
-const MONTHS=["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
-const DAY_NAMES=["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
+  <main id="views">
 
-const API = window.location.origin;
-
-async function apiGet(path){const r=await fetch(API+path);return r.json()}
-async function apiPost(path,body){const r=await fetch(API+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});return r.json()}
-
-async function init(){
-  const now=new Date();
-  state.today={day:now.getDate(),month:now.getMonth(),year:now.getFullYear()};
-  state.currentMonth=now.getMonth();state.currentYear=now.getFullYear();
-  const sheets=await apiGet("/api/sheets");
-  if(sheets.error){showToast("Errore: "+sheets.error,true);return}
-  state.sheets=sheets;
-  const match=sheets.find(s=>s.title.includes(MONTHS[now.getMonth()]));
-  state.sheetName=match?match.title:(sheets[0]?sheets[0].title:MONTHS[now.getMonth()]);
-  document.getElementById("monthLabel").textContent=state.sheetName;
-  await loadData();
-}
-
-async function loadData(){
-  const container=document.getElementById("daysContainer");
-  container.innerHTML='<div class="loading"><div class="spinner"></div><span>Caricamento...</span></div>';
-  const data=await apiGet("/api/data/"+encodeURIComponent(state.sheetName));
-  if(data.error){
-    container.innerHTML=`<div class="loading"><span style="color:var(--red)">❌ ${data.error}</span></div>`;
-    return;
-  }
-  state.allRows=data.rows||[];state.totals=data.totals||null;
-  render();updateTotals();
-}
-
-function render(){
-  const container=document.getElementById("daysContainer");
-  const rows=state.allRows;
-  const daysInMonth=new Date(state.currentYear,state.currentMonth+1,0).getDate();
-  let worked=0,partial=0,html="";
-  for(let d=1;d<=daysInMonth;d++){
-    const dow=new Date(state.currentYear,state.currentMonth,d).getDay();
-    const wk=dow===0||dow===6;
-    const today=d===state.today.day&&state.currentMonth===state.today.month&&state.currentYear===state.today.year;
-    const rd=rows[d-1]||{};
-    const e=state.edits[d]||{};
-    const ent=e.entrata!==undefined?e.entrata:(rd.entrataEffettiva||"");
-    const usc=e.uscita!==undefined?e.uscita:(rd.uscitaReale||"");
-    const ePrev=rd.entrataPrevista||"";
-    const uscPrev=rd.uscitaPrevista2||rd.uscitaPrevista1||"";
-    const rit=rd.ritardoEventuale||rd.ritardoCalcolo||"";
-    const fl=rd.scartoFlessibilita||"";
-    const com=rd.commessa||"";
-    let st="empty",ic="○";
-    if(ent&&usc){st="full";ic="✓";worked++}else if(ent||usc){st="partial";ic="◐";partial++}
-    let rc="";
-    const rn=parseFloat(String(rit).replace(",","."));
-    if(!isNaN(rn)){if(rn<=0)rc="ok";else if(rn<0.5)rc="warn";else rc="bad"}
-    html+=`<div class="day-row ${today?"today":""} ${wk?"weekend":""}" data-day="${d}">
-      <div class="day-info"><div class="day-num">${d}</div><span class="day-name">${DAY_NAMES[dow]}</span></div>
-      <div class="inp-group"><label>Entrata</label>
-        <input type="text" inputmode="decimal" value="${ent}" placeholder="7:15" data-day="${d}" data-field="entrata" class="time-inp">
-        <div class="prev-time">📌 ${ePrev}</div></div>
-      <div class="inp-group"><label>Uscita</label>
-        <input type="text" inputmode="decimal" value="${usc}" placeholder="16:00" data-day="${d}" data-field="uscita" class="time-inp">
-        <div class="prev-time">📌 ${uscPrev}</div></div>
-      <div class="meta-col">
-        <div class="ritardo ${rc}">⏱ ${rit}</div>
-        <div class="fless">${fl?fl+"h":""}</div>
-        ${com?`<div class="commessa">📝 ${com}</div>`:""}
+    <!-- HOME -->
+    <section id="view-home" class="view active">
+      <div class="card today-card">
+        <div class="today-ring">
+          <canvas id="ringChart"></canvas>
+          <div class="ring-label">
+            <span id="ringValue">--</span>
+            <small>ore oggi</small>
+          </div>
+        </div>
+        <div class="today-info">
+          <div class="date" id="todayDate">—</div>
+          <div class="today-times">
+            <div class="time-pill empty" id="entrataPill">
+              <div class="tp-label">Entrata</div>
+              <div class="tp-value" id="entrataValue">--:--</div>
+            </div>
+            <div class="time-pill empty" id="uscitaPill">
+              <div class="tp-label">Uscita</div>
+              <div class="tp-value" id="uscitaValue">--:--</div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="status ${st}">${ic}</div></div>`;
-  }
-  container.innerHTML=html;
-  document.getElementById("statsBar").innerHTML=`
-    <div class="stat-card"><div class="label">Completati</div><div class="value green">${worked}</div></div>
-    <div class="stat-card"><div class="label">Parziali</div><div class="value orange">${partial}</div></div>
-    <div class="stat-card"><div class="label">Progresso</div><div class="value accent">${Math.round(((worked+partial*0.3)/daysInMonth)*100)}%</div></div>
-    <div class="stat-card"><div class="label">Oggi</div><div class="value">${state.today.day}/${state.today.month+1}</div></div>`;
-  document.querySelectorAll(".time-inp").forEach(i=>{
-    i.addEventListener("input",onInput);i.addEventListener("blur",onBlur);
-    i.addEventListener("focus",e=>e.target.select());
-  });
-  if(state.today.day<=daysInMonth&&state.currentMonth===state.today.month&&state.currentYear===state.today.year){
-    setTimeout(()=>{const el=document.querySelector(".day-row.today");if(el)el.scrollIntoView({behavior:"smooth",block:"center"})},300);
-  }
-}
 
-let saveTimer=null;
-function onInput(e){
-  const inp=e.target;const d=inp.dataset.day;const f=inp.dataset.field;const v=inp.value.trim();
-  if(!state.edits[d])state.edits[d]={};state.edits[d][f]=v;
-  clearTimeout(saveTimer);setStatus("saving","Salvataggio…");
-  saveTimer=setTimeout(()=>saveDay(d),1200);
-}
-function onBlur(e){clearTimeout(saveTimer);saveDay(e.target.dataset.day)}
+      <div class="quick-actions">
+        <button class="btn btn-primary" id="btnEntrata">▶ Timbra entrata</button>
+        <button class="btn btn-secondary" id="btnUscita">⏹ Timbra uscita</button>
+      </div>
 
-async function saveDay(day){
-  const eds=state.edits[day];if(!eds)return;
-  const ent=eds.entrata!==undefined?eds.entrata:"";const usc=eds.uscita!==undefined?eds.uscita:"";
-  const results=await Promise.all([
-    apiPost("/api/update",{sheet:state.sheetName,row:parseInt(day)+1,col:3,value:ent}),
-    apiPost("/api/update",{sheet:state.sheetName,row:parseInt(day)+1,col:6,value:usc})
-  ]);
-  if(results.every(r=>r.status==="ok")){
-    setStatus("saved","Salvato ✓");
-    const row=document.querySelector(`.day-row[data-day="${day}"]`);
-    if(row){row.classList.remove("saved");void row.offsetWidth;row.classList.add("saved")}
-    setTimeout(()=>loadData(),500);
-  }else{setStatus("error","Errore!")}
-}
+      <div id="anomalyBanner"></div>
 
-document.getElementById("saveBtn").addEventListener("click",async()=>{
-  const days=Object.keys(state.edits);if(!days.length){showToast("Nessuna modifica");return}
-  setStatus("saving","Salvando tutto…");
-  let ok=0,err=0;
-  for(const d of days){
-    const eds=state.edits[d];
-    const ent=eds.entrata!==undefined?eds.entrata:"";const usc=eds.uscita!==undefined?eds.uscita:"";
-    const r=await Promise.all([
-      apiPost("/api/update",{sheet:state.sheetName,row:parseInt(d)+1,col:3,value:ent}),
-      apiPost("/api/update",{sheet:state.sheetName,row:parseInt(d)+1,col:6,value:usc})
-    ]);
-    if(r.every(x=>x.status==="ok"))ok++;else err++;
-  }
-  setStatus("saved",`Fatto: ${ok}✓${err?" "+err+"⚠":""}`);
-  showToast(`✅ ${ok} giorni salvati${err?`, ${err} errori`:""}`);
-  state.edits={};setTimeout(()=>loadData(),500);
-});
+      <div class="card-row">
+        <div class="card balance-card">
+          <div class="card-title">Saldo mese</div>
+          <div class="value zero" id="monthBalance">—</div>
+          <div class="sub" id="monthBalanceSub"></div>
+        </div>
+        <div class="card balance-card">
+          <div class="card-title">Saldo anno</div>
+          <div class="value zero" id="yearBalance">—</div>
+          <div class="sub" id="yearBalanceSub"></div>
+        </div>
+      </div>
 
-document.getElementById("resetBtn").addEventListener("click",()=>{state.edits={};loadData();showToast("↻ Ricaricato")});
-document.getElementById("prevBtn").addEventListener("click",()=>{state.currentMonth--;if(state.currentMonth<0){state.currentMonth=11;state.currentYear--}changeMonth()});
-document.getElementById("nextBtn").addEventListener("click",()=>{state.currentMonth++;if(state.currentMonth>11){state.currentMonth=0;state.currentYear++}changeMonth()});
+      <div class="card">
+        <div class="card-title">Ultimi 7 giorni · scarto flessibilità</div>
+        <div class="chart-wrap h140"><canvas id="last7Chart"></canvas></div>
+      </div>
+    </section>
 
-async function changeMonth(){
-  const m=MONTHS[state.currentMonth];const match=state.sheets.find(s=>s.title.includes(m));
-  state.sheetName=match?match.title:m;
-  document.getElementById("monthLabel").textContent=state.sheetName;
-  state.edits={};await loadData();
-}
+    <!-- CALENDAR -->
+    <section id="view-calendar" class="view">
+      <div class="card">
+        <div class="month-nav">
+          <button id="prevBtn">‹</button>
+          <span class="label" id="monthLabel">—</span>
+          <button id="nextBtn">›</button>
+        </div>
+      </div>
 
-function updateTotals(){
-  const t=state.totals;const el=document.getElementById("totValue");const sub=document.getElementById("totSub");
-  if(!t||(t.flessibilita===null&&t.flessibilita===undefined)){el.textContent="—";el.className="t-value zero";sub.textContent="";return}
-  const val=parseFloat(String(t.flessibilita).replace(",","."));
-  el.textContent=(val>=0?"+":"")+val.toFixed(2)+"h";
-  el.className="t-value "+(val>0?"positive":val<0?"negative":"zero");
-  sub.textContent=t.flessibilitaTesto||"";
-}
+      <div class="stats-strip" id="statsStrip"></div>
 
-let eeTimeout=null;
-document.getElementById("titleH1").addEventListener("click",()=>{
-  state.easterEggCount++;
-  if(state.easterEggCount>=5){state.easterEggCount=0;showEgg()}
-});
-document.getElementById("totalsBar").addEventListener("click",showEgg);
-function showEgg(){
-  const msgs=[
-    {avatar:"🐱",text:"Nya~ bel lavoro oggi!",sub:"*scodinzola felice* 💕"},
-    {avatar:"😼",text:"Baka! Stai andando bene, ma non ti ci abituare!",sub:"*si volta dall'altra parte* 🙄"},
-    {avatar:"💜",text:"Anche se lavori sodo... mi manchi quando non ci sei!",sub:"*sussurra* nya~"},
-    {avatar:"🐾",text:"Ogni giorno che timbri, un gattino si addormenta felice.",sub:"*fa le fusa* zzz..."},
-    {avatar:"🌟",text:"Danya dice che sei il miglior capo del mondo!",sub:"...non ripeterlo però, baka! 💕"}
-  ];
-  const m=msgs[Math.floor(Math.random()*msgs.length)];
-  const ee=document.getElementById("easterEgg");
-  ee.querySelector(".ee-avatar").textContent=m.avatar;
-  ee.querySelector(".ee-text").textContent=m.text;
-  ee.querySelector(".ee-sub").textContent=m.sub;
-  ee.classList.add("show");
-  clearTimeout(eeTimeout);eeTimeout=setTimeout(()=>ee.classList.remove("show"),3500);
-}
+      <div class="days" id="daysContainer">
+        <div class="loading"><div class="spinner"></div><span>Caricamento...</span></div>
+      </div>
 
-function setStatus(t,l){document.getElementById("saveDot").className="dot "+t;document.getElementById("saveLabel").textContent=l}
-function showToast(msg,e){const t=document.getElementById("toast");t.textContent=msg;t.className="toast show"+(e?" error":"");setTimeout(()=>t.classList.remove("show"),2500)}
+      <div class="card-row">
+        <button class="btn btn-secondary" id="resetBtn">↻ Ricarica</button>
+        <button class="btn btn-primary" id="saveBtn">💾 Salva modifiche</button>
+      </div>
+    </section>
 
-init();
-</script>
+    <!-- STATS -->
+    <section id="view-stats" class="view">
+      <div class="card">
+        <div class="card-title">Scarto flessibilità per mese</div>
+        <div class="chart-wrap h180"><canvas id="monthlyChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Andamento cumulato nell'anno</div>
+        <div class="chart-wrap h180"><canvas id="cumulativeChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Composizione giorni</div>
+        <div class="chart-wrap h200"><canvas id="compositionChart"></canvas></div>
+        <div class="legend-row" id="compositionLegend"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Riepilogo</div>
+        <div class="summary-grid" id="summaryGrid"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab active" data-view="home"><span class="ic">🏠</span><span>Home</span></button>
+    <button class="tab" data-view="calendar"><span class="ic">📅</span><span>Calendario</span></button>
+    <button class="tab" data-view="stats"><span class="ic">📊</span><span>Statistiche</span></button>
+  </nav>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
