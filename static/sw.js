@@ -4,8 +4,7 @@ const PRECACHE = [
   "/static/css/style.css",
   "/static/js/app.js",
   "/static/manifest.json",
-  "/static/icons/icon-192.png",
-  "/static/icons/icon-512.png",
+  "/static/icons/icon.svg",
 ];
 
 self.addEventListener("install", (event) => {
