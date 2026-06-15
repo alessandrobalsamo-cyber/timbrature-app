@@ -66,6 +66,12 @@
         </div>
       </div>
 
+      <div class="card balance-card">
+        <div class="card-title">Ore lavorative previste · mese</div>
+        <div class="value zero" id="expectedHours">—</div>
+        <div class="sub" id="expectedHoursSub"></div>
+      </div>
+
       <div class="card">
         <div class="card-title">Ultimi 7 giorni · scarto flessibilità</div>
         <div class="chart-wrap h140"><canvas id="last7Chart"></canvas></div>
@@ -98,6 +104,12 @@
       <div class="card">
         <div class="card-title">Scarto flessibilità per mese</div>
         <div class="chart-wrap h180"><canvas id="monthlyChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ore lavorative per mese</div>
+        <div class="chart-wrap h180"><canvas id="hoursChart"></canvas></div>
+        <div class="legend-row" id="hoursLegend"></div>
       </div>
 
       <div class="card">
