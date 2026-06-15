@@ -218,7 +218,6 @@ main { flex: 1; padding: 0 16px 16px; }
 .inp-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .inp-group input::placeholder { color: var(--text2); opacity: 0.35; }
 .inp-group input:disabled { opacity: 0.5; }
-.inp-group input::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; }
 
 .sw-toggle {
   display: flex; align-items: center; gap: 4px; flex-shrink: 0;
@@ -226,6 +225,14 @@ main { flex: 1; padding: 0 16px 16px; }
   letter-spacing: 0.4px; cursor: pointer;
 }
 .sw-toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.ferie-inp {
+  width: 44px; flex-shrink: 0; text-align: center;
+  background: var(--surface3); border: 1px solid transparent; border-radius: 8px;
+  padding: 6px 4px; font-size: 12px; font-weight: 700; color: var(--text);
+  font-family: var(--font); outline: none; transition: all 0.2s;
+}
+.ferie-inp:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 .commessa-inp {
   flex: 1; min-width: 0;
@@ -245,6 +252,7 @@ main { flex: 1; padding: 0 16px 16px; }
 .status-dot.empty { background: var(--surface3); color: var(--text2); }
 .status-dot.partial { background: var(--orange-soft); color: var(--orange); }
 .status-dot.full { background: var(--green-soft); color: var(--green); }
+.status-dot.ferie { background: var(--orange-soft); color: var(--orange); }
 
 /* ---------- Stats view ---------- */
 .legend-row { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text2); margin-top: 8px; }
