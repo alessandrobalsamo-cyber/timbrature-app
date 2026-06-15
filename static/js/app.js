@@ -79,6 +79,16 @@ function addMinutesToTime(str, minutesToAdd) {
   if (total < 0) total += 1440;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
+function isValidTime(str) {
+  return /^([0-1]?\d|2[0-3]):[0-5]\d$/.test(String(str).trim());
+}
+function formatTimeInput(e) {
+  const inp = e.target;
+  const digits = inp.value.replace(/\D/g, "").slice(0, 4);
+  let formatted = digits;
+  if (digits.length >= 3) formatted = `${digits.slice(0, 2)}:${digits.slice(2)}`;
+  inp.value = formatted;
+}
 function fmtHours(h) {
   if (h === null || h === undefined || isNaN(h)) return "—";
   const sign = h > 0 ? "+" : "";
@@ -100,33 +110,37 @@ function netHours(entrata, uscita) {
 /* ---------------- day stats ---------------- */
 function dayStats(entry, year, month, day, now) {
   const sw = !!entry.sw;
+  const ferieHours = Math.max(0, Math.min(TARGET_HOURS, Number(entry.ferie) || 0));
+  const isFerie = ferieHours > 0;
   const entrata = sw ? SW_ENTRATA : (entry.entrata || "");
   const uscita = sw ? SW_USCITA : (entry.uscita || "");
   const commessa = (entry.commessa || "").trim();
-  const isFerie = /ferie/i.test(commessa);
+  const effectiveTarget = TARGET_HOURS - ferieHours;
 
-  let status = "empty";
-  if (entrata && uscita) status = "full";
-  else if (entrata || uscita) status = "partial";
+  let status = "empty", netH = null, scarto = null, anomaly = false;
 
-  let netH = null, scarto = null, anomaly = false;
-
-  if (status === "full") {
+  if (ferieHours >= TARGET_HOURS) {
+    status = "full";
+    scarto = 0;
+  } else if (entrata && uscita) {
+    status = "full";
     netH = netHours(entrata, uscita);
-    scarto = netH - TARGET_HOURS;
-  } else {
+    scarto = netH - effectiveTarget;
+  } else if (entrata || uscita) {
+    status = "partial";
     const dateObj = new Date(year, month, day);
     dateObj.setHours(0, 0, 0, 0);
     const todayObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (dateObj < todayObj && status === "partial" && entrata) {
+    if (dateObj < todayObj && entrata && !uscita) {
       anomaly = true;
-      scarto = -TARGET_HOURS;
+      scarto = -effectiveTarget;
     }
+  } else if (isFerie) {
+    status = "partial";
+    scarto = -effectiveTarget;
   }
 
-  if (isFerie) scarto = 0;
-
-  return { status, entrata, uscita, netH, scarto, anomaly, isFerie, sw, commessa };
+  return { status, entrata, uscita, netH, scarto, anomaly, isFerie, ferieHours, sw, commessa };
 }
 
 function monthSummary(data, year, month, now) {
@@ -341,7 +355,8 @@ function renderMonth() {
     const ds = dayStats(entry, year, month, d, now);
 
     let st = "empty", ic = "○";
-    if (ds.status === "full") { st = "full"; ic = "✓"; worked++; }
+    if (ds.ferieHours >= TARGET_HOURS) { st = "ferie"; ic = "🌴"; worked++; }
+    else if (ds.status === "full") { st = "full"; ic = "✓"; worked++; }
     else if (ds.status === "partial") { st = "partial"; ic = "◐"; partial++; }
 
     let pillClass = "neutral", pillText = "";
@@ -353,20 +368,24 @@ function renderMonth() {
     const entVal = padTime(entry.sw ? SW_ENTRATA : (entry.entrata || ""));
     const uscVal = padTime(entry.sw ? SW_USCITA : (entry.uscita || ""));
     const commessaVal = (entry.commessa || "");
+    const ferieHours = ds.ferieHours;
+    const lockTimes = entry.sw || ferieHours >= TARGET_HOURS;
 
     html += `<div class="day-row ${isToday ? "today" : ""} ${wk ? "weekend" : ""} ${ds.anomaly ? "anomaly" : ""}" data-day="${d}">
       <div class="day-row-main">
         <div class="day-info"><div class="day-num">${d}</div><span class="day-name">${DAY_NAMES[dow]}</span></div>
         <div class="inp-group"><label>Entrata</label>
-          <input type="time" value="${entVal}" data-day="${d}" data-field="entrata" class="time-inp" ${entry.sw ? "disabled" : ""}>
+          <input type="text" inputmode="numeric" placeholder="--:--" maxlength="5" value="${entVal}" data-day="${d}" data-field="entrata" class="time-inp" ${lockTimes ? "disabled" : ""}>
         </div>
         <div class="inp-group"><label>Uscita</label>
-          <input type="time" value="${uscVal}" data-day="${d}" data-field="uscita" class="time-inp" ${entry.sw ? "disabled" : ""}>
+          <input type="text" inputmode="numeric" placeholder="--:--" maxlength="5" value="${uscVal}" data-day="${d}" data-field="uscita" class="time-inp" ${lockTimes ? "disabled" : ""}>
         </div>
         <div class="status-dot ${st}">${ic}</div>
       </div>
       <div class="day-row-extra">
         <label class="sw-toggle"><input type="checkbox" data-day="${d}" data-field="sw" ${entry.sw ? "checked" : ""}><span>SW</span></label>
+        <label class="sw-toggle"><input type="checkbox" data-day="${d}" data-field="ferie" ${ferieHours > 0 ? "checked" : ""}><span>Ferie</span></label>
+        ${ferieHours > 0 ? `<input type="number" class="ferie-inp" min="0.5" max="${TARGET_HOURS}" step="0.5" value="${ferieHours}" data-day="${d}" data-field="ferieHours">` : ""}
         <input type="text" class="commessa-inp" list="commessaList" placeholder="Commessa" value="${commessaVal}" data-day="${d}" data-field="commessa">
         ${pillText ? `<div class="scarto-pill ${pillClass}">${pillText}</div>` : ""}
       </div>
@@ -385,10 +404,17 @@ function renderMonth() {
 
   document.querySelectorAll(".time-inp").forEach((inp) => {
     inp.addEventListener("focus", (e) => e.target.select());
+    inp.addEventListener("input", formatTimeInput);
     inp.addEventListener("change", onTimeChange);
   });
   document.querySelectorAll('input[data-field="sw"]').forEach((inp) => {
     inp.addEventListener("change", onSwChange);
+  });
+  document.querySelectorAll('input[data-field="ferie"]').forEach((inp) => {
+    inp.addEventListener("change", onFerieToggle);
+  });
+  document.querySelectorAll('input[data-field="ferieHours"]').forEach((inp) => {
+    inp.addEventListener("change", onFerieHoursChange);
   });
   document.querySelectorAll(".commessa-inp").forEach((inp) => {
     inp.addEventListener("change", onCommessaChange);
@@ -415,12 +441,20 @@ function renderCommessaDatalist(data) {
 function onTimeChange(e) {
   const inp = e.target;
   const d = parseInt(inp.dataset.day, 10), field = inp.dataset.field, value = inp.value.trim();
-  setDayField(state.currentYear, state.currentMonth, d, field, value);
 
-  if (field === "entrata" && value) {
+  if (value && !isValidTime(value)) {
+    showToast("⚠️ Formato ora non valido (HH:MM)", true);
+    renderMonth();
+    return;
+  }
+
+  const finalValue = value ? padTime(value) : "";
+  setDayField(state.currentYear, state.currentMonth, d, field, finalValue);
+
+  if (field === "entrata" && finalValue) {
     const entry = getDay(loadData(), state.currentYear, state.currentMonth, d);
     if (!entry.uscita) {
-      const suggestion = addMinutesToTime(value, (TARGET_HOURS + PAUSA_HOURS) * 60);
+      const suggestion = addMinutesToTime(finalValue, (TARGET_HOURS + PAUSA_HOURS) * 60);
       setDayField(state.currentYear, state.currentMonth, d, "uscita", suggestion);
     }
   }
@@ -437,6 +471,27 @@ function onSwChange(e) {
   renderMonth();
   refreshAfterEdit();
   showToast(inp.checked ? "✅ Smart working impostato (7:45-16:30)" : "✅ Salvato");
+}
+
+function onFerieToggle(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10);
+  setDayField(state.currentYear, state.currentMonth, d, "ferie", inp.checked ? TARGET_HOURS : 0);
+  renderMonth();
+  refreshAfterEdit();
+  showToast(inp.checked ? "✅ Ferie impostate (giornata intera)" : "✅ Salvato");
+}
+
+function onFerieHoursChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10);
+  let val = parseFloat(inp.value);
+  if (isNaN(val) || val <= 0) val = 0;
+  if (val > TARGET_HOURS) val = TARGET_HOURS;
+  setDayField(state.currentYear, state.currentMonth, d, "ferie", val);
+  renderMonth();
+  refreshAfterEdit();
+  showToast("✅ Salvato");
 }
 
 function onCommessaChange(e) {
@@ -485,8 +540,8 @@ function exportMonthToMarkdown() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   let md = `# Timbrature - ${MONTHS[month]} ${year}\n\n`;
-  md += `| Giorno | Entrata | Uscita | SW | Commessa | Ore | Scarto |\n`;
-  md += `|---|---|---|---|---|---|---|\n`;
+  md += `| Giorno | Entrata | Uscita | SW | Ferie | Commessa | Ore | Scarto |\n`;
+  md += `|---|---|---|---|---|---|---|---|\n`;
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dow = new Date(year, month, d).getDay();
@@ -494,7 +549,8 @@ function exportMonthToMarkdown() {
     const ds = dayStats(entry, year, month, d, now);
     const ore = ds.netH !== null ? ds.netH.toFixed(2) + "h" : "—";
     const scarto = ds.scarto !== null ? fmtHours(ds.scarto) : "—";
-    md += `| ${d} (${DAY_NAMES[dow]}) | ${ds.entrata || "—"} | ${ds.uscita || "—"} | ${ds.sw ? "✓" : ""} | ${ds.commessa || ""} | ${ore} | ${scarto} |\n`;
+    const ferie = ds.ferieHours ? ds.ferieHours + "h" : "";
+    md += `| ${d} (${DAY_NAMES[dow]}) | ${ds.entrata || "—"} | ${ds.uscita || "—"} | ${ds.sw ? "✓" : ""} | ${ferie} | ${ds.commessa || ""} | ${ore} | ${scarto} |\n`;
   }
 
   const summary = monthSummary(data, year, month, now);
