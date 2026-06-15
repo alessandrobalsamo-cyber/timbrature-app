@@ -8,7 +8,6 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="js/config.js"></script>
 </head>
 <body>
 <div id="app">
@@ -88,8 +87,7 @@
       </div>
 
       <div class="card-row">
-        <button class="btn btn-secondary" id="resetBtn">↻ Ricarica</button>
-        <button class="btn btn-primary" id="saveBtn">💾 Salva modifiche</button>
+        <button class="btn btn-primary" id="exportBtn">📄 Esporta mese (.md)</button>
       </div>
     </section>
 
@@ -114,6 +112,11 @@
       <div class="card">
         <div class="card-title">Riepilogo</div>
         <div class="summary-grid" id="summaryGrid"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Ore per commessa</div>
+        <div class="commessa-list" id="commessaStats"></div>
       </div>
     </section>
 
