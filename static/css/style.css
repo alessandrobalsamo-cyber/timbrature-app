@@ -218,6 +218,7 @@ main { flex: 1; padding: 0 16px 16px; }
 .inp-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .inp-group input::placeholder { color: var(--text2); opacity: 0.35; }
 .inp-group input:disabled { opacity: 0.5; }
+.inp-group input::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; }
 
 .sw-toggle {
   display: flex; align-items: center; gap: 4px; flex-shrink: 0;
