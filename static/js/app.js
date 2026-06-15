@@ -89,10 +89,26 @@ function formatTimeInput(e) {
   if (digits.length >= 3) formatted = `${digits.slice(0, 2)}:${digits.slice(2)}`;
   inp.value = formatted;
 }
-function fmtHours(h) {
+function fmtHoursMin(h) {
   if (h === null || h === undefined || isNaN(h)) return "—";
-  const sign = h > 0 ? "+" : "";
-  return `${sign}${h.toFixed(2)}h`;
+  const totalMin = Math.round(Math.abs(h) * 60);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  if (hh === 0 && mm === 0) return "0 min";
+  const sign = h > 0.0001 ? "+" : h < -0.0001 ? "-" : "";
+  if (hh === 0) return `${sign}${mm} min`;
+  if (mm === 0) return `${sign}${hh} h`;
+  return `${sign}${hh} h ${mm} min`;
+}
+function fmtDuration(h) {
+  if (h === null || h === undefined || isNaN(h)) return "—";
+  const totalMin = Math.round(Math.abs(h) * 60);
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  if (hh === 0 && mm === 0) return "0 min";
+  if (hh === 0) return `${mm} min`;
+  if (mm === 0) return `${hh} h`;
+  return `${hh} h ${mm} min`;
 }
 function balanceClass(h) {
   if (h === null || h === undefined || isNaN(h)) return "zero";
@@ -145,15 +161,20 @@ function dayStats(entry, year, month, day, now) {
 
 function monthSummary(data, year, month, now) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  let scarto = 0, worked = 0, ferie = 0, sw = 0;
+  let scarto = 0, worked = 0, ferie = 0, ferieHours = 0, sw = 0, workdays = 0, workedHours = 0;
   for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    if (dow !== 0 && dow !== 6) workdays++;
     const ds = dayStats(getDay(data, year, month, d), year, month, d, now);
     if (ds.scarto !== null) scarto += ds.scarto;
     if (ds.status === "full") worked++;
     if (ds.isFerie) ferie++;
+    if (ds.ferieHours) ferieHours += ds.ferieHours;
     if (ds.sw) sw++;
+    if (ds.netH !== null) workedHours += ds.netH;
   }
-  return { scarto, worked, ferie, sw, daysInMonth };
+  const expectedHours = workdays * TARGET_HOURS - ferieHours;
+  return { scarto, worked, ferie, ferieHours, sw, daysInMonth, workdays, expectedHours, workedHours };
 }
 
 function buildSeries(data, fromDate, toDate, now) {
@@ -269,7 +290,7 @@ function renderBalances() {
   const data = loadData();
 
   const monthInfo = monthSummary(data, now.getFullYear(), now.getMonth(), now);
-  $("monthBalance").textContent = fmtHours(monthInfo.scarto);
+  $("monthBalance").textContent = fmtHoursMin(monthInfo.scarto);
   $("monthBalance").className = "value " + balanceClass(monthInfo.scarto);
   $("monthBalanceSub").textContent = `${monthInfo.worked} giorni lavorati`;
 
@@ -279,9 +300,15 @@ function renderBalances() {
     yearScarto += info.scarto;
     yearWorked += info.worked;
   }
-  $("yearBalance").textContent = fmtHours(yearScarto);
+  $("yearBalance").textContent = fmtHoursMin(yearScarto);
   $("yearBalance").className = "value " + balanceClass(yearScarto);
   $("yearBalanceSub").textContent = `${yearWorked} giorni totali`;
+
+  const remaining = monthInfo.expectedHours - monthInfo.workedHours;
+  $("expectedHours").textContent = fmtDuration(monthInfo.expectedHours);
+  $("expectedHoursSub").textContent = monthInfo.ferieHours > 0
+    ? `${monthInfo.workdays} giorni lavorativi · -${fmtDuration(monthInfo.ferieHours)} ferie · mancano ${fmtDuration(Math.max(0, remaining))}`
+    : `${monthInfo.workdays} giorni lavorativi · mancano ${fmtDuration(Math.max(0, remaining))}`;
 }
 
 function renderLast7() {
@@ -362,7 +389,7 @@ function renderMonth() {
     let pillClass = "neutral", pillText = "";
     if (ds.scarto !== null) {
       pillClass = ds.scarto > 0.01 ? "positive" : ds.scarto < -0.01 ? "negative" : "neutral";
-      pillText = fmtHours(ds.scarto);
+      pillText = fmtHoursMin(ds.scarto);
     }
 
     const entVal = padTime(entry.sw ? SW_ENTRATA : (entry.entrata || ""));
@@ -400,7 +427,7 @@ function renderMonth() {
     <div class="stat-chip"><div class="sc-label">Completati</div><div class="sc-value" style="color:var(--green)">${worked}</div></div>
     <div class="stat-chip"><div class="sc-label">Parziali</div><div class="sc-value" style="color:var(--orange)">${partial}</div></div>
     <div class="stat-chip"><div class="sc-label">Progresso</div><div class="sc-value" style="color:var(--accent)">${Math.round(((worked + partial * 0.3) / daysInMonth) * 100)}%</div></div>
-    <div class="stat-chip"><div class="sc-label">Saldo mese</div><div class="sc-value ${balanceClass(totalScarto)}">${fmtHours(totalScarto)}</div></div>`;
+    <div class="stat-chip"><div class="sc-label">Saldo mese</div><div class="sc-value ${balanceClass(totalScarto)}">${fmtHoursMin(totalScarto)}</div></div>`;
 
   document.querySelectorAll(".time-inp").forEach((inp) => {
     inp.addEventListener("focus", (e) => e.target.select());
@@ -521,8 +548,23 @@ function changeMonth(delta) {
 }
 
 /* ---------------- EXPORT MARKDOWN ---------------- */
-function downloadFile(filename, content) {
+async function downloadFile(filename, content) {
   const blob = new Blob([content], { type: "text/markdown" });
+
+  if (navigator.canShare && navigator.share) {
+    try {
+      const file = new File([blob], filename, { type: "text/markdown" });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        showToast("📄 Esportato in Markdown");
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      // se la condivisione non è supportata, prosegui con il download
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -531,6 +573,7 @@ function downloadFile(filename, content) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  showToast(`📄 Scaricato "${filename}" (controlla la cartella Download)`);
 }
 
 function exportMonthToMarkdown() {
@@ -548,17 +591,17 @@ function exportMonthToMarkdown() {
     const entry = getDay(data, year, month, d);
     const ds = dayStats(entry, year, month, d, now);
     const ore = ds.netH !== null ? ds.netH.toFixed(2) + "h" : "—";
-    const scarto = ds.scarto !== null ? fmtHours(ds.scarto) : "—";
+    const scarto = ds.scarto !== null ? fmtHoursMin(ds.scarto) : "—";
     const ferie = ds.ferieHours ? ds.ferieHours + "h" : "";
     md += `| ${d} (${DAY_NAMES[dow]}) | ${ds.entrata || "—"} | ${ds.uscita || "—"} | ${ds.sw ? "✓" : ""} | ${ferie} | ${ds.commessa || ""} | ${ore} | ${scarto} |\n`;
   }
 
   const summary = monthSummary(data, year, month, now);
-  md += `\n**Totale scarto mese:** ${fmtHours(summary.scarto)}\n`;
-  md += `\n**Giorni lavorati:** ${summary.worked} · **Ferie:** ${summary.ferie} · **Smart working:** ${summary.sw}\n`;
+  md += `\n**Totale scarto mese:** ${fmtHoursMin(summary.scarto)}\n`;
+  md += `\n**Giorni lavorati:** ${summary.worked} · **Ferie:** ${summary.ferie} (${fmtDuration(summary.ferieHours)}) · **Smart working:** ${summary.sw}\n`;
+  md += `\n**Ore lavorative previste (al netto ferie):** ${fmtDuration(summary.expectedHours)}\n`;
 
   downloadFile(`timbrature-${monthKey(year, month)}.md`, md);
-  showToast("📄 Esportato in Markdown");
 }
 
 /* ---------------- STATS ---------------- */
@@ -580,13 +623,55 @@ function renderStats() {
     data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtHours(c.raw) } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtHoursMin(c.raw) } } },
       scales: {
         x: { grid: { display: false }, ticks: { color: "#9494b0", font: { size: 10 } } },
         y: { grid: { color: "#22222f" }, ticks: { color: "#9494b0", font: { size: 10 } } },
       },
     },
   });
+
+  // monthly hours chart, proportioned: lavorate / ferie / rimanenti vs ore previste
+  const hoursLabels = [];
+  const workedData = [], ferieData = [], remainingData = [];
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    const info = monthSummary(data, now.getFullYear(), mIdx, now);
+    const expectedGross = info.workdays * TARGET_HOURS;
+    const worked = Math.min(info.workedHours, expectedGross);
+    const ferieH = Math.min(info.ferieHours, expectedGross - worked);
+    const remaining = Math.max(0, expectedGross - worked - ferieH);
+    hoursLabels.push(MONTHS[mIdx].slice(0, 3));
+    workedData.push(Math.round(worked * 100) / 100);
+    ferieData.push(Math.round(ferieH * 100) / 100);
+    remainingData.push(Math.round(remaining * 100) / 100);
+  }
+  if (state.charts.hours) state.charts.hours.destroy();
+  state.charts.hours = new Chart($("hoursChart"), {
+    type: "bar",
+    data: {
+      labels: hoursLabels,
+      datasets: [
+        { label: "Lavorate", data: workedData, backgroundColor: "#8b5cf6", borderRadius: 4 },
+        { label: "Ferie", data: ferieData, backgroundColor: "#fbbf24", borderRadius: 4 },
+        { label: "Rimanenti", data: remainingData, backgroundColor: "#2a2a3d", borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtDuration(c.raw)}` } },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: "#9494b0", font: { size: 10 } } },
+        y: { stacked: true, grid: { color: "#22222f" }, ticks: { color: "#9494b0", font: { size: 10 } } },
+      },
+    },
+  });
+  $("hoursLegend").innerHTML = `
+    <span><span class="legend-dot" style="background:#8b5cf6"></span>Lavorate</span>
+    <span><span class="legend-dot" style="background:#fbbf24"></span>Ferie</span>
+    <span><span class="legend-dot" style="background:#2a2a3d"></span>Rimanenti</span>`;
 
   // cumulative line chart (1 gennaio -> oggi)
   const yearStart = new Date(now.getFullYear(), 0, 1);
@@ -610,7 +695,7 @@ function renderStats() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtHours(c.raw) } } },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtHoursMin(c.raw) } } },
       scales: {
         x: { display: false },
         y: { grid: { color: "#22222f" }, ticks: { color: "#9494b0", font: { size: 10 } } },
@@ -656,12 +741,12 @@ function renderStats() {
   const worst = worked.reduce((min, d) => (min === null || d.scarto < min.scarto) ? d : min, null);
 
   $("summaryGrid").innerHTML = `
-    <div class="stat-chip"><div class="sc-label">Saldo anno</div><div class="sc-value ${balanceClass(yearVal)}">${fmtHours(yearVal)}</div></div>
+    <div class="stat-chip"><div class="sc-label">Saldo anno</div><div class="sc-value ${balanceClass(yearVal)}">${fmtHoursMin(yearVal)}</div></div>
     <div class="stat-chip"><div class="sc-label">Giorni lavorati</div><div class="sc-value">${totalWorked}</div></div>
-    <div class="stat-chip"><div class="sc-label">Media giornaliera</div><div class="sc-value ${balanceClass(avg)}">${fmtHours(avg)}</div></div>
+    <div class="stat-chip"><div class="sc-label">Media giornaliera</div><div class="sc-value ${balanceClass(avg)}">${fmtHoursMin(avg)}</div></div>
     <div class="stat-chip"><div class="sc-label">Giorni ferie</div><div class="sc-value" style="color:var(--orange)">${totalFerie}</div></div>
-    <div class="stat-chip"><div class="sc-label">Miglior giorno</div><div class="sc-value positive">${best ? fmtHours(best.scarto) + " (" + best.label + ")" : "—"}</div></div>
-    <div class="stat-chip"><div class="sc-label">Peggior giorno</div><div class="sc-value negative">${worst ? fmtHours(worst.scarto) + " (" + worst.label + ")" : "—"}</div></div>`;
+    <div class="stat-chip"><div class="sc-label">Miglior giorno</div><div class="sc-value positive">${best ? fmtHoursMin(best.scarto) + " (" + best.label + ")" : "—"}</div></div>
+    <div class="stat-chip"><div class="sc-label">Peggior giorno</div><div class="sc-value negative">${worst ? fmtHoursMin(worst.scarto) + " (" + worst.label + ")" : "—"}</div></div>`;
 
   renderCommessaStats(data, now);
 }
@@ -676,8 +761,8 @@ function commessaTotals(data, now, predicate) {
     for (let d = 1; d <= daysInMonth; d++) {
       const entry = getDay(data, year, month, d);
       const ds = dayStats(entry, year, month, d, now);
-      if (ds.status === "full" && !ds.isFerie && ds.commessa) {
-        totals[ds.commessa] = (totals[ds.commessa] || 0) + ds.netH;
+      if (ds.status === "full" && ds.ferieHours < TARGET_HOURS && ds.commessa) {
+        totals[ds.commessa] = (totals[ds.commessa] || 0) + TARGET_HOURS;
       }
     }
   });
