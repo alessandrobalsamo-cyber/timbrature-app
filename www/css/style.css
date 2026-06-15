@@ -186,17 +186,22 @@ main { flex: 1; padding: 0 16px 16px; }
 
 .days { display: flex; flex-direction: column; gap: 6px; }
 .day-row {
-  display: grid;
-  grid-template-columns: 40px 1fr 1fr 56px 34px;
-  gap: 6px; align-items: center;
+  display: flex; flex-direction: column; gap: 6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 8px 10px; transition: all 0.15s;
 }
 .day-row.today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .day-row.weekend { opacity: 0.5; }
 .day-row.anomaly { border-color: var(--red); }
-.day-row.saved { animation: flashGreen 0.6s; }
-@keyframes flashGreen { 0%, 100% { border-color: var(--border); } 50% { border-color: var(--green); } }
+
+.day-row-main {
+  display: grid;
+  grid-template-columns: 40px 1fr 1fr 34px;
+  gap: 6px; align-items: center;
+}
+.day-row-extra {
+  display: flex; align-items: center; gap: 8px;
+}
 
 .day-info { text-align: center; }
 .day-num { font-size: 15px; font-weight: 800; color: var(--text2); }
@@ -212,14 +217,28 @@ main { flex: 1; padding: 0 16px 16px; }
 }
 .inp-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .inp-group input::placeholder { color: var(--text2); opacity: 0.35; }
-.inp-group .prev-time { font-size: 9px; color: var(--text2); opacity: 0.6; margin-top: 1px; }
+.inp-group input:disabled { opacity: 0.5; }
 
-.meta-col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.meta-col .scarto-pill { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
-.meta-col .scarto-pill.positive { color: var(--green); background: var(--green-soft); }
-.meta-col .scarto-pill.negative { color: var(--red); background: var(--red-soft); }
-.meta-col .scarto-pill.neutral { color: var(--text2); background: var(--surface3); }
-.meta-col .commessa { font-size: 8px; color: var(--accent); opacity: 0.8; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-toggle {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  font-size: 10px; font-weight: 700; color: var(--text2); text-transform: uppercase;
+  letter-spacing: 0.4px; cursor: pointer;
+}
+.sw-toggle input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.commessa-inp {
+  flex: 1; min-width: 0;
+  background: var(--surface3); border: 1px solid transparent; border-radius: 8px;
+  padding: 6px 8px; font-size: 12px; font-weight: 600; color: var(--text);
+  font-family: var(--font); outline: none; transition: all 0.2s;
+}
+.commessa-inp:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.commessa-inp::placeholder { color: var(--text2); opacity: 0.5; }
+
+.scarto-pill { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 6px; white-space: nowrap; flex-shrink: 0; }
+.scarto-pill.positive { color: var(--green); background: var(--green-soft); }
+.scarto-pill.negative { color: var(--red); background: var(--red-soft); }
+.scarto-pill.neutral { color: var(--text2); background: var(--surface3); }
 
 .status-dot { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
 .status-dot.empty { background: var(--surface3); color: var(--text2); }
@@ -232,6 +251,16 @@ main { flex: 1; padding: 0 16px 16px; }
 
 .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .summary-grid .stat-chip { min-width: 0; }
+
+/* ---------- Commessa stats ---------- */
+.commessa-list { display: flex; flex-direction: column; gap: 8px; }
+.commessa-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--surface3); border-radius: var(--radius-sm); padding: 10px 12px;
+}
+.commessa-row .commessa-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.commessa-row .commessa-hours { font-size: 13px; font-weight: 800; color: var(--accent); }
+.commessa-empty { font-size: 12px; color: var(--text2); text-align: center; padding: 12px; }
 
 /* ---------- Tab bar ---------- */
 .tabbar {
@@ -266,6 +295,7 @@ main { flex: 1; padding: 0 16px 16px; }
 .toast.error { border-color: var(--red); color: var(--red); }
 
 @media (max-width: 380px) {
-  .day-row { grid-template-columns: 34px 1fr 1fr 48px 28px; padding: 6px 8px; gap: 4px; }
+  .day-row { padding: 6px 8px; gap: 4px; }
+  .day-row-main { grid-template-columns: 32px 1fr 1fr 28px; }
   .inp-group input { padding: 5px 6px; font-size: 12px; }
 }

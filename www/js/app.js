@@ -1,0 +1,657 @@
+const MONTHS = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
+                 "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
+const DAY_NAMES = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
+
+const TARGET_HOURS = 8;       // ore nette giornaliere richieste
+const PAUSA_HOURS = 0.75;     // pausa pranzo (45 minuti)
+const SW_ENTRATA = "07:45";
+const SW_USCITA = "16:30";
+
+const STORAGE_KEY = "timbrature_data_v1";
+
+const state = {
+  currentMonth: new Date().getMonth(),
+  currentYear: new Date().getFullYear(),
+  charts: {},
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ---------------- storage ---------------- */
+function loadData() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+function saveData(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+function monthKey(year, month) {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+function getDay(data, year, month, day) {
+  const mk = monthKey(year, month);
+  return (data[mk] && data[mk][String(day)]) || {};
+}
+function setDayField(year, month, day, field, value) {
+  const data = loadData();
+  const mk = monthKey(year, month);
+  if (!data[mk]) data[mk] = {};
+  if (!data[mk][String(day)]) data[mk][String(day)] = {};
+  data[mk][String(day)][field] = value;
+  saveData(data);
+  return data;
+}
+
+function showToast(msg, isError) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isError ? " error" : "");
+  setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+/* ---------------- time helpers ---------------- */
+function parseTimeToMinutes(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+function minutesToHours(min) {
+  return min / 60;
+}
+function nowToTimeString() {
+  const d = new Date();
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function fmtHours(h) {
+  if (h === null || h === undefined || isNaN(h)) return "—";
+  const sign = h > 0 ? "+" : "";
+  return `${sign}${h.toFixed(2)}h`;
+}
+function balanceClass(h) {
+  if (h === null || h === undefined || isNaN(h)) return "zero";
+  if (h > 0.01) return "positive";
+  if (h < -0.01) return "negative";
+  return "zero";
+}
+function netHours(entrata, uscita) {
+  const e = parseTimeToMinutes(entrata);
+  const u = parseTimeToMinutes(uscita);
+  if (e === null || u === null) return null;
+  return (u - e) / 60 - PAUSA_HOURS;
+}
+
+/* ---------------- day stats ---------------- */
+function dayStats(entry, year, month, day, now) {
+  const sw = !!entry.sw;
+  const entrata = sw ? SW_ENTRATA : (entry.entrata || "");
+  const uscita = sw ? SW_USCITA : (entry.uscita || "");
+  const commessa = (entry.commessa || "").trim();
+  const isFerie = /ferie/i.test(commessa);
+
+  let status = "empty";
+  if (entrata && uscita) status = "full";
+  else if (entrata || uscita) status = "partial";
+
+  let netH = null, scarto = null, anomaly = false;
+
+  if (status === "full") {
+    netH = netHours(entrata, uscita);
+    scarto = netH - TARGET_HOURS;
+  } else {
+    const dateObj = new Date(year, month, day);
+    dateObj.setHours(0, 0, 0, 0);
+    const todayObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (dateObj < todayObj && status === "partial" && entrata) {
+      anomaly = true;
+      scarto = -TARGET_HOURS;
+    }
+  }
+
+  if (isFerie) scarto = 0;
+
+  return { status, entrata, uscita, netH, scarto, anomaly, isFerie, sw, commessa };
+}
+
+function monthSummary(data, year, month, now) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let scarto = 0, worked = 0, ferie = 0, sw = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = dayStats(getDay(data, year, month, d), year, month, d, now);
+    if (ds.scarto !== null) scarto += ds.scarto;
+    if (ds.status === "full") worked++;
+    if (ds.isFerie) ferie++;
+    if (ds.sw) sw++;
+  }
+  return { scarto, worked, ferie, sw, daysInMonth };
+}
+
+function buildSeries(data, fromDate, toDate, now) {
+  const series = [];
+  const cur = new Date(fromDate);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(toDate);
+  end.setHours(0, 0, 0, 0);
+  while (cur <= end) {
+    const y = cur.getFullYear(), m = cur.getMonth(), d = cur.getDate();
+    const ds = dayStats(getDay(data, y, m, d), y, m, d, now);
+    series.push({
+      date: new Date(cur),
+      label: `${d}/${m + 1}`,
+      scarto: (ds.status === "full" || ds.anomaly) ? ds.scarto : null,
+      status: ds.status,
+      anomaly: ds.anomaly,
+    });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return series;
+}
+
+/* ---------------- tabs ---------------- */
+function initTabs() {
+  document.querySelectorAll(".tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+      btn.classList.add("active");
+      $(`view-${btn.dataset.view}`).classList.add("active");
+      if (btn.dataset.view === "stats") renderStats();
+    });
+  });
+}
+
+/* ---------------- live clock ---------------- */
+function startClock() {
+  function tick() {
+    const d = new Date();
+    $("liveClock").textContent = d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+/* ---------------- HOME ---------------- */
+function renderRing(workedHours) {
+  const ctx = $("ringChart");
+  const pct = Math.max(0, Math.min(1, (workedHours || 0) / TARGET_HOURS)) * 100;
+  let color = "#34d399";
+  if ((workedHours || 0) < TARGET_HOURS * 0.5) color = "#f87171";
+  else if ((workedHours || 0) < TARGET_HOURS * 0.9) color = "#fbbf24";
+
+  if (state.charts.ring) state.charts.ring.destroy();
+  state.charts.ring = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      datasets: [{
+        data: [pct, 100 - pct],
+        backgroundColor: [color, "#2a2a3d"],
+        borderWidth: 0,
+        cutout: "78%",
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 600 },
+      plugins: { tooltip: { enabled: false }, legend: { display: false } },
+    },
+  });
+
+  $("ringValue").textContent = (workedHours || 0).toFixed(workedHours ? 1 : 0);
+}
+
+function renderToday() {
+  const now = new Date();
+  const data = loadData();
+  $("todayDate").textContent = now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  const entry = getDay(data, y, m, d);
+  const ds = dayStats(entry, y, m, d, now);
+
+  const entrataStr = ds.entrata;
+  const uscitaStr = ds.uscita;
+
+  const entPill = $("entrataPill"), uscPill = $("uscitaPill");
+  $("entrataValue").textContent = entrataStr || "--:--";
+  $("uscitaValue").textContent = uscitaStr || "--:--";
+  entPill.classList.toggle("empty", !entrataStr);
+  uscPill.classList.toggle("empty", !uscitaStr);
+
+  let workedHours = null;
+  if (ds.status === "full") {
+    workedHours = ds.netH;
+  } else if (entrataStr) {
+    const entMin = parseTimeToMinutes(entrataStr);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    workedHours = Math.max(0, minutesToHours(nowMin - entMin) - PAUSA_HOURS);
+  }
+  renderRing(workedHours);
+
+  $("btnEntrata").disabled = !!entrataStr;
+  $("btnUscita").disabled = !entrataStr || !!uscitaStr;
+  $("btnEntrata").textContent = entrataStr ? "✓ Entrata timbrata" : "▶ Timbra entrata";
+  $("btnUscita").textContent = uscitaStr ? "✓ Uscita timbrata" : "⏹ Timbra uscita";
+}
+
+function renderBalances() {
+  const now = new Date();
+  const data = loadData();
+
+  const monthInfo = monthSummary(data, now.getFullYear(), now.getMonth(), now);
+  $("monthBalance").textContent = fmtHours(monthInfo.scarto);
+  $("monthBalance").className = "value " + balanceClass(monthInfo.scarto);
+  $("monthBalanceSub").textContent = `${monthInfo.worked} giorni lavorati`;
+
+  let yearScarto = 0, yearWorked = 0;
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    const info = monthSummary(data, now.getFullYear(), mIdx, now);
+    yearScarto += info.scarto;
+    yearWorked += info.worked;
+  }
+  $("yearBalance").textContent = fmtHours(yearScarto);
+  $("yearBalance").className = "value " + balanceClass(yearScarto);
+  $("yearBalanceSub").textContent = `${yearWorked} giorni totali`;
+}
+
+function renderLast7() {
+  const now = new Date();
+  const data = loadData();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 6);
+  const series = buildSeries(data, from, now, now);
+
+  const ctx = $("last7Chart");
+  const labels = series.map((d) => d.label);
+  const values = series.map((d) => d.scarto !== null ? d.scarto : 0);
+  const colors = values.map((v) => v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#6b6b8a");
+
+  if (state.charts.last7) state.charts.last7.destroy();
+  state.charts.last7 = new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6, maxBarThickness: 28 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.raw > 0 ? "+" : ""}${c.raw.toFixed(2)}h` } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#9494b0", font: { size: 10 } } },
+        y: { grid: { color: "#22222f" }, ticks: { color: "#9494b0", font: { size: 10 } } },
+      },
+    },
+  });
+}
+
+function renderAnomalyBanner() {
+  const now = new Date();
+  const data = loadData();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 30);
+  const series = buildSeries(data, from, now, now);
+  const anomalies = series.filter((d) => d.anomaly);
+  const el = $("anomalyBanner");
+  if (!anomalies.length) { el.innerHTML = ""; return; }
+  const last = anomalies[anomalies.length - 1];
+  el.innerHTML = `<div class="banner"><span class="ic">⚠️</span>
+    <span>Il <b>${last.label}</b> risulta un'entrata senza uscita registrata &mdash;
+    controlla nel Calendario.</span></div>`;
+}
+
+/* ---------------- CALENDAR ---------------- */
+function commessaList(data) {
+  const set = new Set();
+  Object.values(data).forEach((monthData) => {
+    Object.values(monthData).forEach((entry) => {
+      const c = (entry.commessa || "").trim();
+      if (c && !/ferie/i.test(c)) set.add(c);
+    });
+  });
+  return Array.from(set).sort();
+}
+
+function renderMonth() {
+  const data = loadData();
+  const now = new Date();
+  const year = state.currentYear, month = state.currentMonth;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  $("monthLabel").textContent = `${MONTHS[month]} ${year}`;
+
+  let worked = 0, partial = 0, html = "";
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    const wk = dow === 0 || dow === 6;
+    const isToday = d === now.getDate() && month === now.getMonth() && year === now.getFullYear();
+    const entry = getDay(data, year, month, d);
+    const ds = dayStats(entry, year, month, d, now);
+
+    let st = "empty", ic = "○";
+    if (ds.status === "full") { st = "full"; ic = "✓"; worked++; }
+    else if (ds.status === "partial") { st = "partial"; ic = "◐"; partial++; }
+
+    let pillClass = "neutral", pillText = "";
+    if (ds.scarto !== null) {
+      pillClass = ds.scarto > 0.01 ? "positive" : ds.scarto < -0.01 ? "negative" : "neutral";
+      pillText = fmtHours(ds.scarto);
+    }
+
+    const entVal = entry.sw ? SW_ENTRATA : (entry.entrata || "");
+    const uscVal = entry.sw ? SW_USCITA : (entry.uscita || "");
+    const commessaVal = (entry.commessa || "");
+
+    html += `<div class="day-row ${isToday ? "today" : ""} ${wk ? "weekend" : ""} ${ds.anomaly ? "anomaly" : ""}" data-day="${d}">
+      <div class="day-row-main">
+        <div class="day-info"><div class="day-num">${d}</div><span class="day-name">${DAY_NAMES[dow]}</span></div>
+        <div class="inp-group"><label>Entrata</label>
+          <input type="text" inputmode="numeric" value="${entVal}" placeholder="7:15" data-day="${d}" data-field="entrata" class="time-inp" ${entry.sw ? "disabled" : ""}>
+        </div>
+        <div class="inp-group"><label>Uscita</label>
+          <input type="text" inputmode="numeric" value="${uscVal}" placeholder="16:00" data-day="${d}" data-field="uscita" class="time-inp" ${entry.sw ? "disabled" : ""}>
+        </div>
+        <div class="status-dot ${st}">${ic}</div>
+      </div>
+      <div class="day-row-extra">
+        <label class="sw-toggle"><input type="checkbox" data-day="${d}" data-field="sw" ${entry.sw ? "checked" : ""}><span>SW</span></label>
+        <input type="text" class="commessa-inp" list="commessaList" placeholder="Commessa" value="${commessaVal}" data-day="${d}" data-field="commessa">
+        ${pillText ? `<div class="scarto-pill ${pillClass}">${pillText}</div>` : ""}
+      </div>
+    </div>`;
+  }
+
+  $("daysContainer").innerHTML = html;
+  renderCommessaDatalist(data);
+
+  const totalScarto = monthSummary(data, year, month, now).scarto;
+  $("statsStrip").innerHTML = `
+    <div class="stat-chip"><div class="sc-label">Completati</div><div class="sc-value" style="color:var(--green)">${worked}</div></div>
+    <div class="stat-chip"><div class="sc-label">Parziali</div><div class="sc-value" style="color:var(--orange)">${partial}</div></div>
+    <div class="stat-chip"><div class="sc-label">Progresso</div><div class="sc-value" style="color:var(--accent)">${Math.round(((worked + partial * 0.3) / daysInMonth) * 100)}%</div></div>
+    <div class="stat-chip"><div class="sc-label">Saldo mese</div><div class="sc-value ${balanceClass(totalScarto)}">${fmtHours(totalScarto)}</div></div>`;
+
+  document.querySelectorAll(".time-inp").forEach((inp) => {
+    inp.addEventListener("focus", (e) => e.target.select());
+    inp.addEventListener("change", onTimeChange);
+  });
+  document.querySelectorAll('input[data-field="sw"]').forEach((inp) => {
+    inp.addEventListener("change", onSwChange);
+  });
+  document.querySelectorAll(".commessa-inp").forEach((inp) => {
+    inp.addEventListener("change", onCommessaChange);
+  });
+
+  if (now.getDate() <= daysInMonth && month === now.getMonth() && year === now.getFullYear()) {
+    setTimeout(() => {
+      const el = document.querySelector(".day-row.today");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 200);
+  }
+}
+
+function renderCommessaDatalist(data) {
+  let dl = $("commessaList");
+  if (!dl) {
+    dl = document.createElement("datalist");
+    dl.id = "commessaList";
+    document.body.appendChild(dl);
+  }
+  dl.innerHTML = commessaList(data).map((c) => `<option value="${c}"></option>`).join("");
+}
+
+function onTimeChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10), field = inp.dataset.field, value = inp.value.trim();
+  setDayField(state.currentYear, state.currentMonth, d, field, value);
+  refreshAfterEdit();
+  showToast("✅ Salvato");
+}
+
+function onSwChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10);
+  setDayField(state.currentYear, state.currentMonth, d, "sw", inp.checked);
+  renderMonth();
+  refreshAfterEdit();
+  showToast(inp.checked ? "✅ Smart working impostato (7:45-16:30)" : "✅ Salvato");
+}
+
+function onCommessaChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10);
+  setDayField(state.currentYear, state.currentMonth, d, "commessa", inp.value.trim());
+  renderMonth();
+  refreshAfterEdit();
+  showToast("✅ Salvato");
+}
+
+function refreshAfterEdit() {
+  const now = new Date();
+  if (state.currentMonth === now.getMonth() && state.currentYear === now.getFullYear()) {
+    renderToday();
+  }
+  renderBalances();
+  renderLast7();
+  renderAnomalyBanner();
+}
+
+function changeMonth(delta) {
+  state.currentMonth += delta;
+  if (state.currentMonth < 0) { state.currentMonth = 11; state.currentYear--; }
+  if (state.currentMonth > 11) { state.currentMonth = 0; state.currentYear++; }
+  renderMonth();
+}
+
+/* ---------------- EXPORT MARKDOWN ---------------- */
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportMonthToMarkdown() {
+  const data = loadData();
+  const now = new Date();
+  const year = state.currentYear, month = state.currentMonth;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  let md = `# Timbrature - ${MONTHS[month]} ${year}\n\n`;
+  md += `| Giorno | Entrata | Uscita | SW | Commessa | Ore | Scarto |\n`;
+  md += `|---|---|---|---|---|---|---|\n`;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    const entry = getDay(data, year, month, d);
+    const ds = dayStats(entry, year, month, d, now);
+    const ore = ds.netH !== null ? ds.netH.toFixed(2) + "h" : "—";
+    const scarto = ds.scarto !== null ? fmtHours(ds.scarto) : "—";
+    md += `| ${d} (${DAY_NAMES[dow]}) | ${ds.entrata || "—"} | ${ds.uscita || "—"} | ${ds.sw ? "✓" : ""} | ${ds.commessa || ""} | ${ore} | ${scarto} |\n`;
+  }
+
+  const summary = monthSummary(data, year, month, now);
+  md += `\n**Totale scarto mese:** ${fmtHours(summary.scarto)}\n`;
+  md += `\n**Giorni lavorati:** ${summary.worked} · **Ferie:** ${summary.ferie} · **Smart working:** ${summary.sw}\n`;
+
+  downloadFile(`timbrature-${monthKey(year, month)}.md`, md);
+  showToast("📄 Esportato in Markdown");
+}
+
+/* ---------------- STATS ---------------- */
+function renderStats() {
+  const now = new Date();
+  const data = loadData();
+
+  // monthly bar chart (Gennaio -> mese corrente)
+  const labels = [];
+  const values = [];
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    labels.push(MONTHS[mIdx].slice(0, 3));
+    values.push(monthSummary(data, now.getFullYear(), mIdx, now).scarto);
+  }
+  const colors = values.map((v) => v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#6b6b8a");
+  if (state.charts.monthly) state.charts.monthly.destroy();
+  state.charts.monthly = new Chart($("monthlyChart"), {
+    type: "bar",
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtHours(c.raw) } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#9494b0", font: { size: 10 } } },
+        y: { grid: { color: "#22222f" }, ticks: { color: "#9494b0", font: { size: 10 } } },
+      },
+    },
+  });
+
+  // cumulative line chart (1 gennaio -> oggi)
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const series = buildSeries(data, yearStart, now, now);
+  let cumulative = 0;
+  const cumSeries = series.map((d) => {
+    if (d.scarto !== null) cumulative += d.scarto;
+    return { ...d, cumulative: Math.round(cumulative * 100) / 100 };
+  });
+  if (state.charts.cumulative) state.charts.cumulative.destroy();
+  state.charts.cumulative = new Chart($("cumulativeChart"), {
+    type: "line",
+    data: {
+      labels: cumSeries.map((d) => d.label),
+      datasets: [{
+        data: cumSeries.map((d) => d.cumulative),
+        borderColor: "#8b5cf6",
+        backgroundColor: "rgba(139,92,246,0.15)",
+        fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => fmtHours(c.raw) } } },
+      scales: {
+        x: { display: false },
+        y: { grid: { color: "#22222f" }, ticks: { color: "#9494b0", font: { size: 10 } } },
+      },
+    },
+  });
+
+  // composition doughnut (1 gennaio -> oggi)
+  let totalWorked = 0, totalFerie = 0, totalSw = 0;
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    const info = monthSummary(data, now.getFullYear(), mIdx, now);
+    totalWorked += info.worked;
+    totalFerie += info.ferie;
+    totalSw += info.sw;
+  }
+  const normal = Math.max(0, totalWorked - totalSw);
+  if (state.charts.composition) state.charts.composition.destroy();
+  state.charts.composition = new Chart($("compositionChart"), {
+    type: "doughnut",
+    data: {
+      labels: ["Lavorati", "Ferie", "Smart working"],
+      datasets: [{ data: [normal, totalFerie, totalSw], backgroundColor: ["#8b5cf6", "#fbbf24", "#60a5fa"], borderWidth: 0 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+    },
+  });
+  $("compositionLegend").innerHTML = `
+    <span><span class="legend-dot" style="background:#8b5cf6"></span>Lavorati: ${normal}</span>
+    <span><span class="legend-dot" style="background:#fbbf24"></span>Ferie: ${totalFerie}</span>
+    <span><span class="legend-dot" style="background:#60a5fa"></span>Smart working: ${totalSw}</span>`;
+
+  // summary grid
+  let yearVal = 0;
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    yearVal += monthSummary(data, now.getFullYear(), mIdx, now).scarto;
+  }
+  const scartoValues = series.filter((d) => d.status === "full").map((d) => d.scarto);
+  const avg = scartoValues.length ? scartoValues.reduce((a, b) => a + b, 0) / scartoValues.length : 0;
+  const worked = series.filter((d) => d.status === "full");
+  const best = worked.reduce((max, d) => (max === null || d.scarto > max.scarto) ? d : max, null);
+  const worst = worked.reduce((min, d) => (min === null || d.scarto < min.scarto) ? d : min, null);
+
+  $("summaryGrid").innerHTML = `
+    <div class="stat-chip"><div class="sc-label">Saldo anno</div><div class="sc-value ${balanceClass(yearVal)}">${fmtHours(yearVal)}</div></div>
+    <div class="stat-chip"><div class="sc-label">Giorni lavorati</div><div class="sc-value">${totalWorked}</div></div>
+    <div class="stat-chip"><div class="sc-label">Media giornaliera</div><div class="sc-value ${balanceClass(avg)}">${fmtHours(avg)}</div></div>
+    <div class="stat-chip"><div class="sc-label">Giorni ferie</div><div class="sc-value" style="color:var(--orange)">${totalFerie}</div></div>
+    <div class="stat-chip"><div class="sc-label">Miglior giorno</div><div class="sc-value positive">${best ? fmtHours(best.scarto) + " (" + best.label + ")" : "—"}</div></div>
+    <div class="stat-chip"><div class="sc-label">Peggior giorno</div><div class="sc-value negative">${worst ? fmtHours(worst.scarto) + " (" + worst.label + ")" : "—"}</div></div>`;
+
+  renderCommessaStats(data, now);
+}
+
+function renderCommessaStats(data, now) {
+  const totals = {};
+  Object.keys(data).forEach((mk) => {
+    const [year, month1] = mk.split("-").map(Number);
+    const month = month1 - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const entry = getDay(data, year, month, d);
+      const ds = dayStats(entry, year, month, d, now);
+      if (ds.status === "full" && !ds.isFerie && ds.commessa) {
+        totals[ds.commessa] = (totals[ds.commessa] || 0) + ds.netH;
+      }
+    }
+  });
+
+  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const el = $("commessaStats");
+  if (!entries.length) {
+    el.innerHTML = `<div class="commessa-empty">Nessuna commessa registrata</div>`;
+    return;
+  }
+  el.innerHTML = entries.map(([name, hours]) =>
+    `<div class="commessa-row"><span class="commessa-name">${name}</span><span class="commessa-hours">${hours.toFixed(2)}h</span></div>`
+  ).join("");
+}
+
+/* ---------------- bootstrap ---------------- */
+function refreshAll() {
+  renderToday();
+  renderBalances();
+  renderLast7();
+  renderAnomalyBanner();
+}
+
+function quickStamp(field) {
+  const now = new Date();
+  const value = nowToTimeString();
+  setDayField(now.getFullYear(), now.getMonth(), now.getDate(), field, value);
+  showToast(`✅ ${field === "entrata" ? "Entrata" : "Uscita"} timbrata: ${value}`);
+  refreshAll();
+  if (state.currentMonth === now.getMonth() && state.currentYear === now.getFullYear()) renderMonth();
+}
+
+function init() {
+  initTabs();
+  startClock();
+
+  const now = new Date();
+  state.currentMonth = now.getMonth();
+  state.currentYear = now.getFullYear();
+
+  $("prevBtn").addEventListener("click", () => changeMonth(-1));
+  $("nextBtn").addEventListener("click", () => changeMonth(1));
+  $("exportBtn").addEventListener("click", exportMonthToMarkdown);
+  $("btnEntrata").addEventListener("click", () => quickStamp("entrata"));
+  $("btnUscita").addEventListener("click", () => quickStamp("uscita"));
+
+  refreshAll();
+  renderMonth();
+  renderStats();
+
+  setInterval(() => {
+    renderToday();
+  }, 30000);
+}
+
+init();
