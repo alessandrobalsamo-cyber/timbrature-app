@@ -1,0 +1,20 @@
+{
+  "name": "Timbrature",
+  "short_name": "Timbrature",
+  "description": "Gestione timbrature, saldi e statistiche di flessibilità",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0c14",
+  "theme_color": "#0c0c14",
+  "lang": "it",
+  "icons": [
+    {
+      "src": "/static/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -3,7 +3,4 @@ services:
     name: timbrature-app
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn server:app
-    envVars:
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
-        sync: false
+    startCommand: gunicorn app:app

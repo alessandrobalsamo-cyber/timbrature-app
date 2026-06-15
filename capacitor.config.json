@@ -1,0 +1,8 @@
+{
+  "appId": "com.balsamo.timbrature",
+  "appName": "Timbrature",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  }
+}
