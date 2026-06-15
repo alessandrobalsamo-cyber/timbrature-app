@@ -65,7 +65,19 @@ function minutesToHours(min) {
 }
 function nowToTimeString() {
   const d = new Date();
-  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function padTime(str) {
+  const mins = parseTimeToMinutes(str);
+  if (mins === null) return "";
+  return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+}
+function addMinutesToTime(str, minutesToAdd) {
+  const mins = parseTimeToMinutes(str);
+  if (mins === null) return "";
+  let total = (mins + minutesToAdd) % 1440;
+  if (total < 0) total += 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 function fmtHours(h) {
   if (h === null || h === undefined || isNaN(h)) return "—";
@@ -338,18 +350,18 @@ function renderMonth() {
       pillText = fmtHours(ds.scarto);
     }
 
-    const entVal = entry.sw ? SW_ENTRATA : (entry.entrata || "");
-    const uscVal = entry.sw ? SW_USCITA : (entry.uscita || "");
+    const entVal = padTime(entry.sw ? SW_ENTRATA : (entry.entrata || ""));
+    const uscVal = padTime(entry.sw ? SW_USCITA : (entry.uscita || ""));
     const commessaVal = (entry.commessa || "");
 
     html += `<div class="day-row ${isToday ? "today" : ""} ${wk ? "weekend" : ""} ${ds.anomaly ? "anomaly" : ""}" data-day="${d}">
       <div class="day-row-main">
         <div class="day-info"><div class="day-num">${d}</div><span class="day-name">${DAY_NAMES[dow]}</span></div>
         <div class="inp-group"><label>Entrata</label>
-          <input type="text" inputmode="numeric" value="${entVal}" placeholder="7:15" data-day="${d}" data-field="entrata" class="time-inp" ${entry.sw ? "disabled" : ""}>
+          <input type="time" value="${entVal}" data-day="${d}" data-field="entrata" class="time-inp" ${entry.sw ? "disabled" : ""}>
         </div>
         <div class="inp-group"><label>Uscita</label>
-          <input type="text" inputmode="numeric" value="${uscVal}" placeholder="16:00" data-day="${d}" data-field="uscita" class="time-inp" ${entry.sw ? "disabled" : ""}>
+          <input type="time" value="${uscVal}" data-day="${d}" data-field="uscita" class="time-inp" ${entry.sw ? "disabled" : ""}>
         </div>
         <div class="status-dot ${st}">${ic}</div>
       </div>
@@ -404,6 +416,16 @@ function onTimeChange(e) {
   const inp = e.target;
   const d = parseInt(inp.dataset.day, 10), field = inp.dataset.field, value = inp.value.trim();
   setDayField(state.currentYear, state.currentMonth, d, field, value);
+
+  if (field === "entrata" && value) {
+    const entry = getDay(loadData(), state.currentYear, state.currentMonth, d);
+    if (!entry.uscita) {
+      const suggestion = addMinutesToTime(value, (TARGET_HOURS + PAUSA_HOURS) * 60);
+      setDayField(state.currentYear, state.currentMonth, d, "uscita", suggestion);
+    }
+  }
+
+  renderMonth();
   refreshAfterEdit();
   showToast("✅ Salvato");
 }
@@ -588,11 +610,12 @@ function renderStats() {
   renderCommessaStats(data, now);
 }
 
-function renderCommessaStats(data, now) {
+function commessaTotals(data, now, predicate) {
   const totals = {};
   Object.keys(data).forEach((mk) => {
     const [year, month1] = mk.split("-").map(Number);
     const month = month1 - 1;
+    if (!predicate(year, month)) return;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
       const entry = getDay(data, year, month, d);
@@ -602,9 +625,12 @@ function renderCommessaStats(data, now) {
       }
     }
   });
+  return totals;
+}
 
+function renderCommessaList(elId, totals) {
   const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-  const el = $("commessaStats");
+  const el = $(elId);
   if (!entries.length) {
     el.innerHTML = `<div class="commessa-empty">Nessuna commessa registrata</div>`;
     return;
@@ -612,6 +638,14 @@ function renderCommessaStats(data, now) {
   el.innerHTML = entries.map(([name, hours]) =>
     `<div class="commessa-row"><span class="commessa-name">${name}</span><span class="commessa-hours">${hours.toFixed(2)}h</span></div>`
   ).join("");
+}
+
+function renderCommessaStats(data, now) {
+  const curYear = now.getFullYear(), curMonth = now.getMonth();
+  const monthTotals = commessaTotals(data, now, (y, m) => y === curYear && m === curMonth);
+  const yearTotals = commessaTotals(data, now, (y) => y === curYear);
+  renderCommessaList("commessaStatsMonth", monthTotals);
+  renderCommessaList("commessaStatsYear", yearTotals);
 }
 
 /* ---------------- bootstrap ---------------- */
