@@ -4,6 +4,3 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
-    envVars:
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
-        sync: false

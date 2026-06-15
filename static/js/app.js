@@ -1,34 +1,48 @@
 const MONTHS = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
                  "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
 const DAY_NAMES = ["Dom","Lun","Mar","Mer","Gio","Ven","Sab"];
-const TARGET_HOURS = 8.75;
+
+const TARGET_HOURS = 8;       // ore nette giornaliere richieste
+const PAUSA_HOURS = 0.75;     // pausa pranzo (45 minuti)
+const SW_ENTRATA = "07:45";
+const SW_USCITA = "16:30";
+
+const STORAGE_KEY = "timbrature_data_v1";
 
 const state = {
-  months: [],
-  overview: null,
-  now: null,
   currentMonth: new Date().getMonth(),
   currentYear: new Date().getFullYear(),
-  monthRows: [],
-  monthTotals: null,
-  edits: {},
   charts: {},
 };
 
 const $ = (id) => document.getElementById(id);
 
-// In the Android app (Capacitor) the UI is bundled locally, so API calls need
-// an absolute URL to the deployed backend. On the web version API_BASE is
-// empty and requests stay relative to the current origin.
-const API_BASE = window.API_BASE_URL || "";
-
-async function apiGet(path) {
-  const r = await fetch(API_BASE + path);
-  return r.json();
+/* ---------------- storage ---------------- */
+function loadData() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
 }
-async function apiPost(path, body) {
-  const r = await fetch(API_BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return r.json();
+function saveData(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+function monthKey(year, month) {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+function getDay(data, year, month, day) {
+  const mk = monthKey(year, month);
+  return (data[mk] && data[mk][String(day)]) || {};
+}
+function setDayField(year, month, day, field, value) {
+  const data = loadData();
+  const mk = monthKey(year, month);
+  if (!data[mk]) data[mk] = {};
+  if (!data[mk][String(day)]) data[mk][String(day)] = {};
+  data[mk][String(day)][field] = value;
+  saveData(data);
+  return data;
 }
 
 function showToast(msg, isError) {
@@ -64,6 +78,78 @@ function balanceClass(h) {
   if (h < -0.01) return "negative";
   return "zero";
 }
+function netHours(entrata, uscita) {
+  const e = parseTimeToMinutes(entrata);
+  const u = parseTimeToMinutes(uscita);
+  if (e === null || u === null) return null;
+  return (u - e) / 60 - PAUSA_HOURS;
+}
+
+/* ---------------- day stats ---------------- */
+function dayStats(entry, year, month, day, now) {
+  const sw = !!entry.sw;
+  const entrata = sw ? SW_ENTRATA : (entry.entrata || "");
+  const uscita = sw ? SW_USCITA : (entry.uscita || "");
+  const commessa = (entry.commessa || "").trim();
+  const isFerie = /ferie/i.test(commessa);
+
+  let status = "empty";
+  if (entrata && uscita) status = "full";
+  else if (entrata || uscita) status = "partial";
+
+  let netH = null, scarto = null, anomaly = false;
+
+  if (status === "full") {
+    netH = netHours(entrata, uscita);
+    scarto = netH - TARGET_HOURS;
+  } else {
+    const dateObj = new Date(year, month, day);
+    dateObj.setHours(0, 0, 0, 0);
+    const todayObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (dateObj < todayObj && status === "partial" && entrata) {
+      anomaly = true;
+      scarto = -TARGET_HOURS;
+    }
+  }
+
+  if (isFerie) scarto = 0;
+
+  return { status, entrata, uscita, netH, scarto, anomaly, isFerie, sw, commessa };
+}
+
+function monthSummary(data, year, month, now) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let scarto = 0, worked = 0, ferie = 0, sw = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = dayStats(getDay(data, year, month, d), year, month, d, now);
+    if (ds.scarto !== null) scarto += ds.scarto;
+    if (ds.status === "full") worked++;
+    if (ds.isFerie) ferie++;
+    if (ds.sw) sw++;
+  }
+  return { scarto, worked, ferie, sw, daysInMonth };
+}
+
+function buildSeries(data, fromDate, toDate, now) {
+  const series = [];
+  const cur = new Date(fromDate);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(toDate);
+  end.setHours(0, 0, 0, 0);
+  while (cur <= end) {
+    const y = cur.getFullYear(), m = cur.getMonth(), d = cur.getDate();
+    const ds = dayStats(getDay(data, y, m, d), y, m, d, now);
+    series.push({
+      date: new Date(cur),
+      label: `${d}/${m + 1}`,
+      scarto: (ds.status === "full" || ds.anomaly) ? ds.scarto : null,
+      status: ds.status,
+      anomaly: ds.anomaly,
+    });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return series;
+}
 
 /* ---------------- tabs ---------------- */
 function initTabs() {
@@ -73,6 +159,7 @@ function initTabs() {
       document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
       btn.classList.add("active");
       $(`view-${btn.dataset.view}`).classList.add("active");
+      if (btn.dataset.view === "stats") renderStats();
     });
   });
 }
@@ -118,14 +205,16 @@ function renderRing(workedHours) {
 }
 
 function renderToday() {
-  const ov = state.overview;
-  const now = state.now;
-  const d = new Date(now.year, now.month - 1, now.day);
-  $("todayDate").textContent = d.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+  const now = new Date();
+  const data = loadData();
+  $("todayDate").textContent = now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
 
-  const today = ov.today;
-  const entrataStr = today ? today.entrataEffettiva : "";
-  const uscitaStr = today ? today.uscitaReale : "";
+  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  const entry = getDay(data, y, m, d);
+  const ds = dayStats(entry, y, m, d, now);
+
+  const entrataStr = ds.entrata;
+  const uscitaStr = ds.uscita;
 
   const entPill = $("entrataPill"), uscPill = $("uscitaPill");
   $("entrataValue").textContent = entrataStr || "--:--";
@@ -134,13 +223,12 @@ function renderToday() {
   uscPill.classList.toggle("empty", !uscitaStr);
 
   let workedHours = null;
-  const entMin = parseTimeToMinutes(entrataStr);
-  const uscMin = parseTimeToMinutes(uscitaStr);
-  if (entMin !== null && uscMin !== null) {
-    workedHours = minutesToHours(uscMin - entMin);
-  } else if (entMin !== null) {
-    const nowMin = now.hourNow * 60 + now.minuteNow;
-    workedHours = minutesToHours(Math.max(0, nowMin - entMin));
+  if (ds.status === "full") {
+    workedHours = ds.netH;
+  } else if (entrataStr) {
+    const entMin = parseTimeToMinutes(entrataStr);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    workedHours = Math.max(0, minutesToHours(nowMin - entMin) - PAUSA_HOURS);
   }
   renderRing(workedHours);
 
@@ -151,25 +239,32 @@ function renderToday() {
 }
 
 function renderBalances() {
-  const ov = state.overview;
-  const now = state.now;
-  const monthData = ov.months.find((m) => m.name === MONTHS[now.month - 1]);
+  const now = new Date();
+  const data = loadData();
 
-  const monthVal = monthData ? monthData.totalScarto : null;
-  $("monthBalance").textContent = fmtHours(monthVal);
-  $("monthBalance").className = "value " + balanceClass(monthVal);
-  $("monthBalanceSub").textContent = monthData ? `${monthData.workedDays} giorni lavorati` : "";
+  const monthInfo = monthSummary(data, now.getFullYear(), now.getMonth(), now);
+  $("monthBalance").textContent = fmtHours(monthInfo.scarto);
+  $("monthBalance").className = "value " + balanceClass(monthInfo.scarto);
+  $("monthBalanceSub").textContent = `${monthInfo.worked} giorni lavorati`;
 
-  const yearVal = ov.months.reduce((acc, m) => acc + (m.totalScarto || 0), 0);
-  $("yearBalance").textContent = fmtHours(yearVal);
-  $("yearBalance").className = "value " + balanceClass(yearVal);
-  const totalWorked = ov.months.reduce((acc, m) => acc + m.workedDays, 0);
-  $("yearBalanceSub").textContent = `${totalWorked} giorni totali`;
+  let yearScarto = 0, yearWorked = 0;
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    const info = monthSummary(data, now.getFullYear(), mIdx, now);
+    yearScarto += info.scarto;
+    yearWorked += info.worked;
+  }
+  $("yearBalance").textContent = fmtHours(yearScarto);
+  $("yearBalance").className = "value " + balanceClass(yearScarto);
+  $("yearBalanceSub").textContent = `${yearWorked} giorni totali`;
 }
 
 function renderLast7() {
-  const ov = state.overview;
-  const series = ov.dailySeries.slice(-7);
+  const now = new Date();
+  const data = loadData();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 6);
+  const series = buildSeries(data, from, now, now);
+
   const ctx = $("last7Chart");
   const labels = series.map((d) => d.label);
   const values = series.map((d) => d.scarto !== null ? d.scarto : 0);
@@ -191,84 +286,85 @@ function renderLast7() {
 }
 
 function renderAnomalyBanner() {
-  const ov = state.overview;
-  const anomalies = ov.dailySeries.filter((d) => d.anomaly);
+  const now = new Date();
+  const data = loadData();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 30);
+  const series = buildSeries(data, from, now, now);
+  const anomalies = series.filter((d) => d.anomaly);
   const el = $("anomalyBanner");
   if (!anomalies.length) { el.innerHTML = ""; return; }
   const last = anomalies[anomalies.length - 1];
   el.innerHTML = `<div class="banner"><span class="ic">⚠️</span>
-    <span>Il <b>${last.label}</b> (${last.month}) lo scarto flessibilità è di <b>${fmtHours(last.scarto)}</b> &mdash;
-    probabile timbratura mancante. Controlla nel Calendario.</span></div>`;
+    <span>Il <b>${last.label}</b> risulta un'entrata senza uscita registrata &mdash;
+    controlla nel Calendario.</span></div>`;
 }
 
 /* ---------------- CALENDAR ---------------- */
-async function loadMonth() {
-  const container = $("daysContainer");
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><span>Caricamento...</span></div>';
-  const name = MONTHS[state.currentMonth];
-  $("monthLabel").textContent = `${name} ${state.currentYear}`;
-  const data = await apiGet(`/api/month/${encodeURIComponent(name)}`);
-  if (data.error) {
-    container.innerHTML = `<div class="loading"><span style="color:var(--red)">❌ ${data.error}</span></div>`;
-    return;
-  }
-  state.monthRows = data.rows || [];
-  state.monthTotals = data.totals || null;
-  state.edits = {};
-  renderMonth();
+function commessaList(data) {
+  const set = new Set();
+  Object.values(data).forEach((monthData) => {
+    Object.values(monthData).forEach((entry) => {
+      const c = (entry.commessa || "").trim();
+      if (c && !/ferie/i.test(c)) set.add(c);
+    });
+  });
+  return Array.from(set).sort();
 }
 
 function renderMonth() {
-  const rows = state.monthRows;
-  const daysInMonth = new Date(state.currentYear, state.currentMonth + 1, 0).getDate();
-  const now = state.now;
+  const data = loadData();
+  const now = new Date();
+  const year = state.currentYear, month = state.currentMonth;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  $("monthLabel").textContent = `${MONTHS[month]} ${year}`;
+
   let worked = 0, partial = 0, html = "";
 
   for (let d = 1; d <= daysInMonth; d++) {
-    const dow = new Date(state.currentYear, state.currentMonth, d).getDay();
+    const dow = new Date(year, month, d).getDay();
     const wk = dow === 0 || dow === 6;
-    const isToday = d === now.day && state.currentMonth === now.month - 1 && state.currentYear === now.year;
-    const rd = rows[d - 1] || {};
-    const e = state.edits[d] || {};
-    const ent = e.entrata !== undefined ? e.entrata : (rd.entrataEffettiva || "");
-    const usc = e.uscita !== undefined ? e.uscita : (rd.uscitaReale || "");
-    const ePrev = rd.entrataPrevista || "";
-    const uscPrev = rd.uscitaPrevista || "";
-    const scarto = rd.scarto;
-    const commessa = rd.lavoro || "";
-    const anomaly = scarto !== null && scarto !== undefined && Math.abs(scarto) >= 4 && ent;
+    const isToday = d === now.getDate() && month === now.getMonth() && year === now.getFullYear();
+    const entry = getDay(data, year, month, d);
+    const ds = dayStats(entry, year, month, d, now);
 
     let st = "empty", ic = "○";
-    if (ent && usc) { st = "full"; ic = "✓"; worked++; }
-    else if (ent || usc) { st = "partial"; ic = "◐"; partial++; }
+    if (ds.status === "full") { st = "full"; ic = "✓"; worked++; }
+    else if (ds.status === "partial") { st = "partial"; ic = "◐"; partial++; }
 
     let pillClass = "neutral", pillText = "";
-    if (ent && scarto !== null && scarto !== undefined) {
-      pillClass = scarto > 0.01 ? "positive" : scarto < -0.01 ? "negative" : "neutral";
-      pillText = fmtHours(scarto);
+    if (ds.scarto !== null) {
+      pillClass = ds.scarto > 0.01 ? "positive" : ds.scarto < -0.01 ? "negative" : "neutral";
+      pillText = fmtHours(ds.scarto);
     }
 
-    html += `<div class="day-row ${isToday ? "today" : ""} ${wk ? "weekend" : ""} ${anomaly ? "anomaly" : ""}" data-day="${d}">
-      <div class="day-info"><div class="day-num">${d}</div><span class="day-name">${DAY_NAMES[dow]}</span></div>
-      <div class="inp-group"><label>Entrata</label>
-        <input type="text" inputmode="numeric" value="${ent}" placeholder="${ePrev || "7:15"}" data-day="${d}" data-field="entrata" class="time-inp">
-        ${ePrev ? `<div class="prev-time">📌 ${ePrev}</div>` : ""}
+    const entVal = entry.sw ? SW_ENTRATA : (entry.entrata || "");
+    const uscVal = entry.sw ? SW_USCITA : (entry.uscita || "");
+    const commessaVal = (entry.commessa || "");
+
+    html += `<div class="day-row ${isToday ? "today" : ""} ${wk ? "weekend" : ""} ${ds.anomaly ? "anomaly" : ""}" data-day="${d}">
+      <div class="day-row-main">
+        <div class="day-info"><div class="day-num">${d}</div><span class="day-name">${DAY_NAMES[dow]}</span></div>
+        <div class="inp-group"><label>Entrata</label>
+          <input type="text" inputmode="numeric" value="${entVal}" placeholder="7:15" data-day="${d}" data-field="entrata" class="time-inp" ${entry.sw ? "disabled" : ""}>
+        </div>
+        <div class="inp-group"><label>Uscita</label>
+          <input type="text" inputmode="numeric" value="${uscVal}" placeholder="16:00" data-day="${d}" data-field="uscita" class="time-inp" ${entry.sw ? "disabled" : ""}>
+        </div>
+        <div class="status-dot ${st}">${ic}</div>
       </div>
-      <div class="inp-group"><label>Uscita</label>
-        <input type="text" inputmode="numeric" value="${usc}" placeholder="${uscPrev || "16:00"}" data-day="${d}" data-field="uscita" class="time-inp">
-        ${uscPrev ? `<div class="prev-time">📌 ${uscPrev}</div>` : ""}
-      </div>
-      <div class="meta-col">
+      <div class="day-row-extra">
+        <label class="sw-toggle"><input type="checkbox" data-day="${d}" data-field="sw" ${entry.sw ? "checked" : ""}><span>SW</span></label>
+        <input type="text" class="commessa-inp" list="commessaList" placeholder="Commessa" value="${commessaVal}" data-day="${d}" data-field="commessa">
         ${pillText ? `<div class="scarto-pill ${pillClass}">${pillText}</div>` : ""}
-        ${commessa && commessa.toLowerCase() !== "ferie" ? `<div class="commessa">📝 ${commessa}</div>` : (commessa ? `<div class="commessa">🏖️ ${commessa}</div>` : "")}
       </div>
-      <div class="status-dot ${st}">${ic}</div>
     </div>`;
   }
 
   $("daysContainer").innerHTML = html;
+  renderCommessaDatalist(data);
 
-  const totalScarto = state.monthTotals ? state.monthTotals.scarto : null;
+  const totalScarto = monthSummary(data, year, month, now).scarto;
   $("statsStrip").innerHTML = `
     <div class="stat-chip"><div class="sc-label">Completati</div><div class="sc-value" style="color:var(--green)">${worked}</div></div>
     <div class="stat-chip"><div class="sc-label">Parziali</div><div class="sc-value" style="color:var(--orange)">${partial}</div></div>
@@ -277,10 +373,16 @@ function renderMonth() {
 
   document.querySelectorAll(".time-inp").forEach((inp) => {
     inp.addEventListener("focus", (e) => e.target.select());
-    inp.addEventListener("change", onInputChange);
+    inp.addEventListener("change", onTimeChange);
+  });
+  document.querySelectorAll('input[data-field="sw"]').forEach((inp) => {
+    inp.addEventListener("change", onSwChange);
+  });
+  document.querySelectorAll(".commessa-inp").forEach((inp) => {
+    inp.addEventListener("change", onCommessaChange);
   });
 
-  if (now.day <= daysInMonth && state.currentMonth === now.month - 1 && state.currentYear === now.year) {
+  if (now.getDate() <= daysInMonth && month === now.getMonth() && year === now.getFullYear()) {
     setTimeout(() => {
       const el = document.querySelector(".day-row.today");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -288,46 +390,111 @@ function renderMonth() {
   }
 }
 
-function onInputChange(e) {
-  const inp = e.target;
-  const d = inp.dataset.day, f = inp.dataset.field, v = inp.value.trim();
-  if (!state.edits[d]) state.edits[d] = {};
-  state.edits[d][f] = v;
-}
-
-async function saveAll() {
-  const days = Object.keys(state.edits);
-  if (!days.length) { showToast("Nessuna modifica da salvare"); return; }
-  const name = MONTHS[state.currentMonth];
-  let ok = 0, err = 0;
-  for (const d of days) {
-    const eds = state.edits[d];
-    for (const field of ["entrata", "uscita"]) {
-      if (eds[field] === undefined) continue;
-      const r = await apiPost("/api/update", { sheet: name, giorno: parseInt(d, 10), field, value: eds[field] });
-      if (r.status === "ok") ok++; else err++;
-    }
-    const row = document.querySelector(`.day-row[data-day="${d}"]`);
-    if (row) { row.classList.remove("saved"); void row.offsetWidth; row.classList.add("saved"); }
+function renderCommessaDatalist(data) {
+  let dl = $("commessaList");
+  if (!dl) {
+    dl = document.createElement("datalist");
+    dl.id = "commessaList";
+    document.body.appendChild(dl);
   }
-  showToast(err ? `Salvato con ${err} errori` : `✅ ${ok} modifiche salvate`, !!err);
-  await refreshAll();
+  dl.innerHTML = commessaList(data).map((c) => `<option value="${c}"></option>`).join("");
 }
 
-async function changeMonth(delta) {
+function onTimeChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10), field = inp.dataset.field, value = inp.value.trim();
+  setDayField(state.currentYear, state.currentMonth, d, field, value);
+  refreshAfterEdit();
+  showToast("✅ Salvato");
+}
+
+function onSwChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10);
+  setDayField(state.currentYear, state.currentMonth, d, "sw", inp.checked);
+  renderMonth();
+  refreshAfterEdit();
+  showToast(inp.checked ? "✅ Smart working impostato (7:45-16:30)" : "✅ Salvato");
+}
+
+function onCommessaChange(e) {
+  const inp = e.target;
+  const d = parseInt(inp.dataset.day, 10);
+  setDayField(state.currentYear, state.currentMonth, d, "commessa", inp.value.trim());
+  renderMonth();
+  refreshAfterEdit();
+  showToast("✅ Salvato");
+}
+
+function refreshAfterEdit() {
+  const now = new Date();
+  if (state.currentMonth === now.getMonth() && state.currentYear === now.getFullYear()) {
+    renderToday();
+  }
+  renderBalances();
+  renderLast7();
+  renderAnomalyBanner();
+}
+
+function changeMonth(delta) {
   state.currentMonth += delta;
   if (state.currentMonth < 0) { state.currentMonth = 11; state.currentYear--; }
   if (state.currentMonth > 11) { state.currentMonth = 0; state.currentYear++; }
-  await loadMonth();
+  renderMonth();
+}
+
+/* ---------------- EXPORT MARKDOWN ---------------- */
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportMonthToMarkdown() {
+  const data = loadData();
+  const now = new Date();
+  const year = state.currentYear, month = state.currentMonth;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  let md = `# Timbrature - ${MONTHS[month]} ${year}\n\n`;
+  md += `| Giorno | Entrata | Uscita | SW | Commessa | Ore | Scarto |\n`;
+  md += `|---|---|---|---|---|---|---|\n`;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    const entry = getDay(data, year, month, d);
+    const ds = dayStats(entry, year, month, d, now);
+    const ore = ds.netH !== null ? ds.netH.toFixed(2) + "h" : "—";
+    const scarto = ds.scarto !== null ? fmtHours(ds.scarto) : "—";
+    md += `| ${d} (${DAY_NAMES[dow]}) | ${ds.entrata || "—"} | ${ds.uscita || "—"} | ${ds.sw ? "✓" : ""} | ${ds.commessa || ""} | ${ore} | ${scarto} |\n`;
+  }
+
+  const summary = monthSummary(data, year, month, now);
+  md += `\n**Totale scarto mese:** ${fmtHours(summary.scarto)}\n`;
+  md += `\n**Giorni lavorati:** ${summary.worked} · **Ferie:** ${summary.ferie} · **Smart working:** ${summary.sw}\n`;
+
+  downloadFile(`timbrature-${monthKey(year, month)}.md`, md);
+  showToast("📄 Esportato in Markdown");
 }
 
 /* ---------------- STATS ---------------- */
 function renderStats() {
-  const ov = state.overview;
+  const now = new Date();
+  const data = loadData();
 
-  // monthly bar chart
-  const labels = ov.months.map((m) => m.name.slice(0, 3));
-  const values = ov.months.map((m) => m.totalScarto);
+  // monthly bar chart (Gennaio -> mese corrente)
+  const labels = [];
+  const values = [];
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    labels.push(MONTHS[mIdx].slice(0, 3));
+    values.push(monthSummary(data, now.getFullYear(), mIdx, now).scarto);
+  }
   const colors = values.map((v) => v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#6b6b8a");
   if (state.charts.monthly) state.charts.monthly.destroy();
   state.charts.monthly = new Chart($("monthlyChart"), {
@@ -343,15 +510,21 @@ function renderStats() {
     },
   });
 
-  // cumulative line chart
-  const series = ov.dailySeries;
+  // cumulative line chart (1 gennaio -> oggi)
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const series = buildSeries(data, yearStart, now, now);
+  let cumulative = 0;
+  const cumSeries = series.map((d) => {
+    if (d.scarto !== null) cumulative += d.scarto;
+    return { ...d, cumulative: Math.round(cumulative * 100) / 100 };
+  });
   if (state.charts.cumulative) state.charts.cumulative.destroy();
   state.charts.cumulative = new Chart($("cumulativeChart"), {
     type: "line",
     data: {
-      labels: series.map((d) => d.label),
+      labels: cumSeries.map((d) => d.label),
       datasets: [{
-        data: series.map((d) => d.cumulative),
+        data: cumSeries.map((d) => d.cumulative),
         borderColor: "#8b5cf6",
         backgroundColor: "rgba(139,92,246,0.15)",
         fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2,
@@ -367,11 +540,15 @@ function renderStats() {
     },
   });
 
-  // composition doughnut
-  const totalWorked = ov.months.reduce((a, m) => a + m.workedDays, 0);
-  const totalFerie = ov.months.reduce((a, m) => a + m.ferieDays, 0);
-  const totalSw = ov.months.reduce((a, m) => a + m.swDays, 0);
-  const normal = Math.max(0, totalWorked - totalFerie - totalSw);
+  // composition doughnut (1 gennaio -> oggi)
+  let totalWorked = 0, totalFerie = 0, totalSw = 0;
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    const info = monthSummary(data, now.getFullYear(), mIdx, now);
+    totalWorked += info.worked;
+    totalFerie += info.ferie;
+    totalSw += info.sw;
+  }
+  const normal = Math.max(0, totalWorked - totalSw);
   if (state.charts.composition) state.charts.composition.destroy();
   state.charts.composition = new Chart($("compositionChart"), {
     type: "doughnut",
@@ -390,11 +567,15 @@ function renderStats() {
     <span><span class="legend-dot" style="background:#60a5fa"></span>Smart working: ${totalSw}</span>`;
 
   // summary grid
-  const yearVal = ov.months.reduce((acc, m) => acc + (m.totalScarto || 0), 0);
-  const scartoValues = series.map((d) => d.scarto).filter((v) => v !== null && v !== undefined);
+  let yearVal = 0;
+  for (let mIdx = 0; mIdx <= now.getMonth(); mIdx++) {
+    yearVal += monthSummary(data, now.getFullYear(), mIdx, now).scarto;
+  }
+  const scartoValues = series.filter((d) => d.status === "full").map((d) => d.scarto);
   const avg = scartoValues.length ? scartoValues.reduce((a, b) => a + b, 0) / scartoValues.length : 0;
-  const best = series.reduce((max, d) => (d.scarto !== null && (max === null || d.scarto > max.scarto)) ? d : max, null);
-  const worst = series.reduce((min, d) => (d.scarto !== null && (min === null || d.scarto < min.scarto)) ? d : min, null);
+  const worked = series.filter((d) => d.status === "full");
+  const best = worked.reduce((max, d) => (max === null || d.scarto > max.scarto) ? d : max, null);
+  const worst = worked.reduce((min, d) => (min === null || d.scarto < min.scarto) ? d : min, null);
 
   $("summaryGrid").innerHTML = `
     <div class="stat-chip"><div class="sc-label">Saldo anno</div><div class="sc-value ${balanceClass(yearVal)}">${fmtHours(yearVal)}</div></div>
@@ -403,70 +584,74 @@ function renderStats() {
     <div class="stat-chip"><div class="sc-label">Giorni ferie</div><div class="sc-value" style="color:var(--orange)">${totalFerie}</div></div>
     <div class="stat-chip"><div class="sc-label">Miglior giorno</div><div class="sc-value positive">${best ? fmtHours(best.scarto) + " (" + best.label + ")" : "—"}</div></div>
     <div class="stat-chip"><div class="sc-label">Peggior giorno</div><div class="sc-value negative">${worst ? fmtHours(worst.scarto) + " (" + worst.label + ")" : "—"}</div></div>`;
+
+  renderCommessaStats(data, now);
+}
+
+function renderCommessaStats(data, now) {
+  const totals = {};
+  Object.keys(data).forEach((mk) => {
+    const [year, month1] = mk.split("-").map(Number);
+    const month = month1 - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const entry = getDay(data, year, month, d);
+      const ds = dayStats(entry, year, month, d, now);
+      if (ds.status === "full" && !ds.isFerie && ds.commessa) {
+        totals[ds.commessa] = (totals[ds.commessa] || 0) + ds.netH;
+      }
+    }
+  });
+
+  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const el = $("commessaStats");
+  if (!entries.length) {
+    el.innerHTML = `<div class="commessa-empty">Nessuna commessa registrata</div>`;
+    return;
+  }
+  el.innerHTML = entries.map(([name, hours]) =>
+    `<div class="commessa-row"><span class="commessa-name">${name}</span><span class="commessa-hours">${hours.toFixed(2)}h</span></div>`
+  ).join("");
 }
 
 /* ---------------- bootstrap ---------------- */
-async function refreshAll() {
-  const [now, overview] = await Promise.all([apiGet("/api/now"), apiGet("/api/overview")]);
-  if (overview.error) { showToast("Errore: " + overview.error, true); return; }
-  const d = new Date();
-  state.now = { ...overview.now, hourNow: d.getHours(), minuteNow: d.getMinutes() };
-  state.overview = overview;
+function refreshAll() {
   renderToday();
   renderBalances();
   renderLast7();
   renderAnomalyBanner();
-  renderStats();
 }
 
-async function quickStamp(field) {
-  const now = state.now;
-  const name = MONTHS[now.month - 1];
+function quickStamp(field) {
+  const now = new Date();
   const value = nowToTimeString();
-  const r = await apiPost("/api/update", { sheet: name, giorno: now.day, field, value });
-  if (r.status === "ok") {
-    showToast(`✅ ${field === "entrata" ? "Entrata" : "Uscita"} timbrata: ${value}`);
-    await refreshAll();
-    if (state.currentMonth === now.month - 1 && state.currentYear === now.year) await loadMonth();
-  } else {
-    showToast("Errore: " + r.error, true);
-  }
+  setDayField(now.getFullYear(), now.getMonth(), now.getDate(), field, value);
+  showToast(`✅ ${field === "entrata" ? "Entrata" : "Uscita"} timbrata: ${value}`);
+  refreshAll();
+  if (state.currentMonth === now.getMonth() && state.currentYear === now.getFullYear()) renderMonth();
 }
 
-async function init() {
+function init() {
   initTabs();
   startClock();
 
-  const now = await apiGet("/api/now");
-  state.currentMonth = now.month - 1;
-  state.currentYear = now.year;
+  const now = new Date();
+  state.currentMonth = now.getMonth();
+  state.currentYear = now.getFullYear();
 
   $("prevBtn").addEventListener("click", () => changeMonth(-1));
   $("nextBtn").addEventListener("click", () => changeMonth(1));
-  $("resetBtn").addEventListener("click", () => { state.edits = {}; loadMonth(); showToast("↻ Ricaricato"); });
-  $("saveBtn").addEventListener("click", saveAll);
+  $("exportBtn").addEventListener("click", exportMonthToMarkdown);
   $("btnEntrata").addEventListener("click", () => quickStamp("entrata"));
   $("btnUscita").addEventListener("click", () => quickStamp("uscita"));
 
-  await refreshAll();
-  await loadMonth();
+  refreshAll();
+  renderMonth();
+  renderStats();
 
   setInterval(() => {
-    const d = new Date();
-    state.now.hourNow = d.getHours();
-    state.now.minuteNow = d.getMinutes();
-    if (!state.overview.today || !state.overview.today.uscitaReale) renderRing(
-      state.overview.today && state.overview.today.entrataEffettiva
-        ? minutesToHours(Math.max(0, (d.getHours() * 60 + d.getMinutes()) - parseTimeToMinutes(state.overview.today.entrataEffettiva)))
-        : null
-    );
+    renderToday();
   }, 30000);
-}
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
 }
 
 init();
